@@ -44,7 +44,11 @@ jobs:
     - name: Run tests after update
       if: steps.changes.outputs.changed == 'true'
       run: |
-        npm ci
+        if [ -f package-lock.json ]; then
+          npm ci
+        else
+          npm install
+        fi
         npm test
         npm run build
         

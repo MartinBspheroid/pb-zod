@@ -6,6 +6,10 @@ out
 dist
 *.tgz
 
+# Generated files during development
+pocketbase-zod.ts
+index.ts
+
 # code coverage
 coverage
 *.lcov

@@ -46,5 +46,7 @@ temp/
 pocketbase-zod.ts
 index.ts
 
-# Bun specific
+# Lock files (npm manages package-lock.json)
 bun.lock
+yarn.lock
+pnpm-lock.yaml
