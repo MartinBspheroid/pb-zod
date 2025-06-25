@@ -21,9 +21,15 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "prebuild": "npm run clean",
     "prepublishOnly": "npm run build",
     "dev": "tsx src/cli.ts",
-    "test": "echo \"No tests yet\" && exit 0"
+    "test": "echo \"No tests yet\" && exit 0",
+    "lint": "echo \"No linting configured yet\" && exit 0",
+    "format": "echo \"No formatting configured yet\" && exit 0",
+    "version": "npm run build && git add dist/",
+    "postversion": "git push && git push --tags"
   },
   "keywords": [
     "pocketbase",
