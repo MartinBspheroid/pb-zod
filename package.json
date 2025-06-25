@@ -1,0 +1,66 @@
+{
+  "name": "pocketbase-zod-generator",
+  "version": "0.1.0",
+  "description": "Generate Zod schemas from PocketBase collections with proper select field enum support",
+  "type": "module",
+  "main": "./dist/main.js",
+  "types": "./dist/main.d.ts",
+  "bin": {
+    "pocketbase-zod-generator": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/main.js",
+      "types": "./dist/main.d.ts"
+    }
+  },
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build",
+    "dev": "tsx src/cli.ts",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "keywords": [
+    "pocketbase",
+    "zod",
+    "typescript",
+    "schema",
+    "validation",
+    "codegen",
+    "typegen"
+  ],
+  "author": "Martin Blasko <martin@blasko.me>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/martinblasko/pocketbase-zod-generator.git"
+  },
+  "homepage": "https://github.com/martinblasko/pocketbase-zod-generator#readme",
+  "bugs": {
+    "url": "https://github.com/martinblasko/pocketbase-zod-generator/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "zod": "^3.20.0"
+  },
+  "dependencies": {
+    "commander": "^14.0.0",
+    "cross-fetch": "^4.1.0",
+    "dotenv-flow": "^4.1.0",
+    "form-data": "^4.0.3",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7"
+  }
+}
