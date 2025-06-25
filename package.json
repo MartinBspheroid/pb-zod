@@ -1,6 +1,6 @@
 {
   "name": "pocketbase-zod-generator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Generate Zod schemas from PocketBase collections with proper select field enum support",
   "type": "module",
   "main": "./dist/main.js",
@@ -28,8 +28,7 @@
     "test": "echo \"No tests yet\" && exit 0",
     "lint": "echo \"No linting configured yet\" && exit 0",
     "format": "echo \"No formatting configured yet\" && exit 0",
-    "version": "npm run build && git add dist/",
-    "postversion": "git push && git push --tags"
+    "version": "echo \"Version updated to $(node -p 'require(\"./package.json\").version')\""
   },
   "keywords": [
     "pocketbase",

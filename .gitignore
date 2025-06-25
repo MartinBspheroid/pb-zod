@@ -10,6 +10,9 @@ dist
 pocketbase-zod.ts
 index.ts
 
+# But include scripts directory in git (not in npm via .npmignore)
+!scripts/
+
 # code coverage
 coverage
 *.lcov

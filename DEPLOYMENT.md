@@ -42,16 +42,24 @@ Ensure the repository has:
 
 #### Via Command Line
 ```bash
-# Bump version and trigger release
-npm version patch   # 0.1.0 → 0.1.1
-npm version minor   # 0.1.0 → 0.2.0  
-npm version major   # 0.1.0 → 1.0.0
+# Use the provided release script
+./scripts/release.sh patch   # 0.1.0 → 0.1.1
+./scripts/release.sh minor   # 0.1.0 → 0.2.0  
+./scripts/release.sh major   # 0.1.0 → 1.0.0
 
 # This automatically:
-# 1. Updates package.json version
-# 2. Creates git tag
-# 3. Pushes to GitHub
-# 4. Triggers release workflow
+# 1. Runs tests and builds
+# 2. Updates package.json version
+# 3. Creates git tag
+# 4. Pushes to GitHub
+# 5. Triggers release workflow
+
+# Or manually:
+npm version patch --no-git-tag-version
+git add package.json
+git commit -m "chore: bump version to v$(node -p 'require(\"./package.json\").version')"
+git tag "v$(node -p 'require(\"./package.json\").version')"
+git push origin main --follow-tags
 ```
 
 ### Method 2: Manual Release
