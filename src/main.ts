@@ -54,7 +54,19 @@ export async function generateZodSchemas(options: GenerationOptions): Promise<st
     return;
   }
   
-  const typeString = generate(schema);
+  // Determine the source URL to pass to the generator
+  let sourceUrl = "unknown";
+  if (options.url) {
+    sourceUrl = options.url;
+  } else if (options.env && process.env.PB_TYPEGEN_URL) {
+    sourceUrl = process.env.PB_TYPEGEN_URL;
+  } else if (options.db) {
+    sourceUrl = `local database: ${options.db}`;
+  } else if (options.json) {
+    sourceUrl = `local JSON file: ${options.json}`;
+  }
+
+  const typeString = generate(schema, sourceUrl);
   await saveFile(options.out, typeString);
   return typeString;
 }

@@ -19,7 +19,11 @@ export async function fromDatabase(dbPath: string): Promise<PocketBaseCollection
 
 export async function fromJSON(path: string): Promise<PocketBaseCollection[]> {
   const schemaStr = await fs.readFile(path, { encoding: "utf8" });
-  return JSON.parse(schemaStr);
+  const rawCollections = JSON.parse(schemaStr);
+  return rawCollections.map((collection: any) => ({
+    ...collection,
+    fields: collection.fields ?? collection.schema ?? []
+  }));
 }
 
 export async function fromURLWithToken(url: string, token: string = ""): Promise<PocketBaseCollection[]> {

@@ -4,7 +4,12 @@ export const EXPORT_COMMENT = `/**
 
 export const IMPORTS = `import { z } from 'zod'`;
 
-export const SCHEMAS_COMMENT = `// Zod schemas for each collection`;
+export const GENERATED_FROM_URL_COMMENT = (url: string) => `// Generated from: ${url}`;
+export const GENERATION_TIMESTAMP_COMMENT = (timestamp: string) => `// Generated at: ${timestamp}`;
+
+export const SCHEMAS_COMMENT = `// ===== ZOD SCHEMAS =====`;
+
+export const INFERRED_TYPES_COMMENT = `// ===== INFERRED TYPES =====`;
 
 export const RESPONSE_TYPE_COMMENT = `// Response types include system fields and match responses from the PocketBase API`;
 
