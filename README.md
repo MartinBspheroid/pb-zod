@@ -125,6 +125,71 @@ export type UsersRecord = z.infer<typeof UsersRecordSchema>;
 export type UsersResponse = z.infer<typeof UsersResponseSchema>;
 ```
 
+## ⚙️ Binding Generation Process
+
+Below is a diagram illustrating the process of generating Zod schemas from PocketBase collections:
+
+```mermaid
+graph TD
+    A[User Input] --> B{Choose Input Type};
+    B -- URL + Credentials --> C[fromURLWithPassword / fromURLWithToken];
+    B -- DB Path --> D[fromDatabase];
+    B -- JSON Path --> E[fromJSON];
+    B -- .env File --> F[dotenv + fromURLWithPassword / fromURLWithToken];
+
+    subgraph Schema Fetching
+        direction LR
+        C[schema-fetchers.ts: fromURL...] --> G[PocketBaseCollection[]];
+        D[schema-fetchers.ts: fromDatabase] --> G;
+        E[schema-fetchers.ts: fromJSON] --> G;
+        F[dotenv + schema-fetchers.ts: fromURL...] --> G;
+    end
+
+    G --> H{generator.ts: generate};
+
+    subgraph Code Generation
+        direction TB
+        H -- Iterates Collections --> I[generator.ts: createCollectionSchema];
+        I -- For Each Collection --> J[fields.ts: createSelectOptions];
+        I -- For Each Collection --> K[fields.ts: createZodField (for each field)];
+        I -- For Each Collection --> L[Merge with System Fields (constants.ts)];
+        I -- For Each Collection --> M[Infer TypeScript Types];
+        J --> N[Generated Code String];
+        K --> N;
+        L --> N;
+        M --> N;
+    end
+
+    H --> N;
+    N --> O[utils.ts: saveFile];
+    O --> P[Output File (e.g., pocketbase-zod.ts)];
+
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style B fill:#f9f,stroke:#333,stroke-width:2px
+    style P fill:#ccf,stroke:#333,stroke-width:2px
+
+    classDef schemaFetcher fill:#lightgreen,stroke:#333,stroke-width:2px;
+    class C,D,E,F schemaFetcher;
+
+    classDef generator fill:#lightblue,stroke:#333,stroke-width:2px;
+    class H,I,J,K,L,M generator;
+```
+
+**Brief Explanation:**
+
+1.  **User Input**: The process starts with the user providing input, which can be PocketBase instance details (URL, credentials), a path to a local SQLite database, a JSON schema file, or by using environment variables.
+2.  **Schema Fetching**: Based on the input type, the relevant function from `src/schema-fetchers.ts` is used to retrieve the collection definitions from PocketBase. This results in an array of `PocketBaseCollection` objects.
+3.  **Code Generation (`generator.ts`):**
+    *   The `generate` function takes the fetched schemas.
+    *   It iterates through each collection, calling `createCollectionSchema`.
+    *   `createCollectionSchema` then:
+        *   Generates enum constants for `select` fields using `createSelectOptions` (from `src/fields.ts`).
+        *   Creates Zod schema definitions for each field within a collection using `createZodField` (from `src/fields.ts`).
+        *   Merges the generated record schema with appropriate system field schemas (e.g., `id`, `created`, `updated`) defined in `src/constants.ts`.
+        *   Infers TypeScript types from the Zod schemas.
+    *   All these generated pieces are combined into a single TypeScript code string.
+4.  **Output**: The `saveFile` utility (from `src/utils.ts`) writes this code string to the specified output file (e.g., `pocketbase-zod.ts`).
+
 ## 🔧 CLI Options
 
 | Option | Description | Default |
