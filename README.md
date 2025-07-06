@@ -139,30 +139,30 @@ graph TD
 
     subgraph Schema Fetching
         direction LR
-        C[schema-fetchers.ts: fromURL...] --> G[PocketBaseCollection[]];
-        D[schema-fetchers.ts: fromDatabase] --> G;
-        E[schema-fetchers.ts: fromJSON] --> G;
-        F[dotenv + schema-fetchers.ts: fromURL...] --> G;
+        C["schema-fetchers.ts: fromURL..."] --> G["PocketBaseCollection[]"];
+        D["schema-fetchers.ts: fromDatabase"] --> G;
+        E["schema-fetchers.ts: fromJSON"] --> G;
+        F["dotenv + schema-fetchers.ts: fromURL..."] --> G;
     end
 
-    G --> H{generator.ts: generate};
+    G --> H{"generator.ts: generate"};
 
     subgraph Code Generation
         direction TB
-        H -- Iterates Collections --> I[generator.ts: createCollectionSchema];
-        I -- For Each Collection --> J[fields.ts: createSelectOptions];
-        I -- For Each Collection --> K[fields.ts: createZodField (for each field)];
-        I -- For Each Collection --> L[Merge with System Fields (constants.ts)];
-        I -- For Each Collection --> M[Infer TypeScript Types];
-        J --> N[Generated Code String];
+        H -- Iterates Collections --> I["generator.ts: createCollectionSchema"];
+        I -- For Each Collection --> J["fields.ts: createSelectOptions"];
+        I -- For Each Collection --> K["fields.ts: createZodField (for each field)"];
+        I -- For Each Collection --> L["Merge with System Fields (constants.ts)"];
+        I -- For Each Collection --> M["Infer TypeScript Types"];
+        J --> N["Generated Code String"];
         K --> N;
         L --> N;
         M --> N;
     end
 
     H --> N;
-    N --> O[utils.ts: saveFile];
-    O --> P[Output File (e.g., pocketbase-zod.ts)];
+    N --> O["utils.ts: saveFile"];
+    O --> P["Output File (e.g., pocketbase-zod.ts)"];
 
     style A fill:#f9f,stroke:#333,stroke-width:2px
     style B fill:#f9f,stroke:#333,stroke-width:2px
