@@ -132,17 +132,30 @@ Below is a diagram illustrating the process of generating Zod schemas from Pocke
 ```mermaid
 graph TD
     A[User Input] --> B{Choose Input Type};
-    B -- URL + Credentials --> C[fromURLWithPassword / fromURLWithToken];
-    B -- DB Path --> D[fromDatabase];
-    B -- JSON Path --> E[fromJSON];
-    B -- .env File --> F[dotenv + fromURLWithPassword / fromURLWithToken];
 
-    subgraph Schema Fetching
+    B -- URL + Email/Password --> BA["fromURLWithPassword (schema-fetchers.ts)"];
+    B -- URL + Auth Token --> BB["fromURLWithToken (schema-fetchers.ts)"];
+    B -- DB Path --> BC["fromDatabase (schema-fetchers.ts)"];
+    B -- JSON Path --> BD["fromJSON (schema-fetchers.ts)"];
+    B -- .env File --> BE{"dotenv loads env vars"};
+
+    subgraph .env Processing
         direction LR
-        C["schema-fetchers.ts: fromURL..."] --> G["PocketBaseCollection[]"];
-        D["schema-fetchers.ts: fromDatabase"] --> G;
-        E["schema-fetchers.ts: fromJSON"] --> G;
-        F["dotenv + schema-fetchers.ts: fromURL..."] --> G;
+        BE --> BF{"PB_TYPEGEN_TOKEN set?"};
+        BF -- Yes --> BG["fromURLWithToken (schema-fetchers.ts)"];
+        BF -- No --> BH{"PB_TYPEGEN_EMAIL & PB_TYPEGEN_PASSWORD set?"};
+        BH -- Yes --> BI["fromURLWithPassword (schema-fetchers.ts)"];
+        BH -- No --> BJ["Error: Missing env vars"];
+    end
+
+    subgraph Schema Collection
+        direction TB
+        BA --> G["PocketBaseCollection[]"];
+        BB --> G;
+        BC --> G;
+        BD --> G;
+        BG --> G;
+        BI --> G;
     end
 
     G --> H{"generator.ts: generate"};
@@ -163,22 +176,23 @@ graph TD
     H --> N;
     N --> O["utils.ts: saveFile"];
     O --> P["Output File (e.g., pocketbase-zod.ts)"];
-
-    style A fill:#f9f,stroke:#333,stroke-width:2px
-    style B fill:#f9f,stroke:#333,stroke-width:2px
-    style P fill:#ccf,stroke:#333,stroke-width:2px
-
-    classDef schemaFetcher fill:#lightgreen,stroke:#333,stroke-width:2px;
-    class C,D,E,F schemaFetcher;
-
-    classDef generator fill:#lightblue,stroke:#333,stroke-width:2px;
-    class H,I,J,K,L,M generator;
 ```
 
 **Brief Explanation:**
 
-1.  **User Input**: The process starts with the user providing input, which can be PocketBase instance details (URL, credentials), a path to a local SQLite database, a JSON schema file, or by using environment variables.
-2.  **Schema Fetching**: Based on the input type, the relevant function from `src/schema-fetchers.ts` is used to retrieve the collection definitions from PocketBase. This results in an array of `PocketBaseCollection` objects.
+1.  **User Input**: The process starts with the user providing input. This can be:
+    *   Direct PocketBase instance details: URL and admin email/password, or URL and an admin auth token.
+    *   A path to a local PocketBase SQLite database file (`--db` option).
+    *   A path to a JSON schema file exported from PocketBase (`--json` option).
+    *   Via a `.env` file (`--env` option), which should contain `PB_TYPEGEN_URL` and either `PB_TYPEGEN_TOKEN` or `PB_TYPEGEN_EMAIL` & `PB_TYPEGEN_PASSWORD`.
+2.  **Schema Fetching (`src/schema-fetchers.ts`)**:
+    *   Depending on the input method, a specific function is called to retrieve the collection definitions:
+        *   `fromURLWithPassword`: For URL and email/password credentials.
+        *   `fromURLWithToken`: For URL and auth token.
+        *   `fromDatabase`: For SQLite database path.
+        *   `fromJSON`: For JSON file path.
+    *   If using `.env`, the script first checks for `PB_TYPEGEN_TOKEN`. If present, `fromURLWithToken` is used. Otherwise, it checks for `PB_TYPEGEN_EMAIL` and `PB_TYPEGEN_PASSWORD` and uses `fromURLWithPassword`.
+    *   All these functions ultimately return an array of `PocketBaseCollection` objects representing the schema.
 3.  **Code Generation (`generator.ts`):**
     *   The `generate` function takes the fetched schemas.
     *   It iterates through each collection, calling `createCollectionSchema`.
