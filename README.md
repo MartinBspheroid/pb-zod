@@ -125,6 +125,85 @@ export type UsersRecord = z.infer<typeof UsersRecordSchema>;
 export type UsersResponse = z.infer<typeof UsersResponseSchema>;
 ```
 
+## ⚙️ Binding Generation Process
+
+Below is a diagram illustrating the process of generating Zod schemas from PocketBase collections:
+
+```mermaid
+graph TD
+    A[User Input] --> B{Choose Input Type};
+
+    B -- URL + Email/Password --> BA["fromURLWithPassword (schema-fetchers.ts)"];
+    B -- URL + Auth Token --> BB["fromURLWithToken (schema-fetchers.ts)"];
+    B -- DB Path --> BC["fromDatabase (schema-fetchers.ts)"];
+    B -- JSON Path --> BD["fromJSON (schema-fetchers.ts)"];
+    B -- .env File --> BE{"dotenv loads env vars"};
+
+    subgraph .env Processing
+        direction LR
+        BE --> BF{"PB_TYPEGEN_TOKEN set?"};
+        BF -- Yes --> BG["fromURLWithToken (schema-fetchers.ts)"];
+        BF -- No --> BH{"PB_TYPEGEN_EMAIL & PB_TYPEGEN_PASSWORD set?"};
+        BH -- Yes --> BI["fromURLWithPassword (schema-fetchers.ts)"];
+        BH -- No --> BJ["Error: Missing env vars"];
+    end
+
+    subgraph Schema Collection
+        direction TB
+        BA --> G["PocketBaseCollection[]"];
+        BB --> G;
+        BC --> G;
+        BD --> G;
+        BG --> G;
+        BI --> G;
+    end
+
+    G --> H{"generator.ts: generate"};
+
+    subgraph Code Generation
+        direction TB
+        H -- Iterates Collections --> I["generator.ts: createCollectionSchema"];
+        I -- For Each Collection --> J["fields.ts: createSelectOptions"];
+        I -- For Each Collection --> K["fields.ts: createZodField (for each field)"];
+        I -- For Each Collection --> L["Merge with System Fields (constants.ts)"];
+        I -- For Each Collection --> M["Infer TypeScript Types"];
+        J --> N["Generated Code String"];
+        K --> N;
+        L --> N;
+        M --> N;
+    end
+
+    H --> N;
+    N --> O["utils.ts: saveFile"];
+    O --> P["Output File (e.g., pocketbase-zod.ts)"];
+```
+
+**Brief Explanation:**
+
+1.  **User Input**: The process starts with the user providing input. This can be:
+    *   Direct PocketBase instance details: URL and admin email/password, or URL and an admin auth token.
+    *   A path to a local PocketBase SQLite database file (`--db` option).
+    *   A path to a JSON schema file exported from PocketBase (`--json` option).
+    *   Via a `.env` file (`--env` option), which should contain `PB_TYPEGEN_URL` and either `PB_TYPEGEN_TOKEN` or `PB_TYPEGEN_EMAIL` & `PB_TYPEGEN_PASSWORD`.
+2.  **Schema Fetching (`src/schema-fetchers.ts`)**:
+    *   Depending on the input method, a specific function is called to retrieve the collection definitions:
+        *   `fromURLWithPassword`: For URL and email/password credentials.
+        *   `fromURLWithToken`: For URL and auth token.
+        *   `fromDatabase`: For SQLite database path.
+        *   `fromJSON`: For JSON file path.
+    *   If using `.env`, the script first checks for `PB_TYPEGEN_TOKEN`. If present, `fromURLWithToken` is used. Otherwise, it checks for `PB_TYPEGEN_EMAIL` and `PB_TYPEGEN_PASSWORD` and uses `fromURLWithPassword`.
+    *   All these functions ultimately return an array of `PocketBaseCollection` objects representing the schema.
+3.  **Code Generation (`generator.ts`):**
+    *   The `generate` function takes the fetched schemas.
+    *   It iterates through each collection, calling `createCollectionSchema`.
+    *   `createCollectionSchema` then:
+        *   Generates enum constants for `select` fields using `createSelectOptions` (from `src/fields.ts`).
+        *   Creates Zod schema definitions for each field within a collection using `createZodField` (from `src/fields.ts`).
+        *   Merges the generated record schema with appropriate system field schemas (e.g., `id`, `created`, `updated`) defined in `src/constants.ts`.
+        *   Infers TypeScript types from the Zod schemas.
+    *   All these generated pieces are combined into a single TypeScript code string.
+4.  **Output**: The `saveFile` utility (from `src/utils.ts`) writes this code string to the specified output file (e.g., `pocketbase-zod.ts`).
+
 ## 🔧 CLI Options
 
 | Option | Description | Default |
