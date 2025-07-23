@@ -1,118 +1,130 @@
-# PocketBase Zod Generator - Development Reference
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
 **pocketbase-zod-generator** is a TypeScript CLI tool that generates Zod schemas from PocketBase collections with proper select field enum support. It provides type-safe validation and TypeScript types for PocketBase applications.
 
-## Quick Start
-
-```bash
-# Install globally
-npm install -g pocketbase-zod-generator
-
-# Generate schemas from local PocketBase
-pocketbase-zod-generator --env --out ./src/types/pocketbase-zod.ts
-```
-
-## Documentation
-
-### Core References
-- **[Architecture Overview](.claude/ref/architecture.md)** - System design, patterns, and data flow
-- **[API Reference](.claude/ref/api-reference.md)** - Complete function and type documentation
-- **[CLI Reference](.claude/ref/cli-reference.md)** - Command-line usage and options
-- **[Field Mapping](.claude/ref/field-mapping.md)** - PocketBase to Zod type conversions
-
-### Key Files
-- `src/main.ts` - Primary API entry point
-- `src/cli.ts` - Command-line interface
-- `src/generator.ts` - Core generation logic
-- `src/schema-fetchers.ts` - Data source strategies
-- `src/fields.ts` - Field type mapping
-- `src/types.ts` - TypeScript definitions
-
 ## Development Commands
 
 ```bash
-# Build the project
+# Build the project (compiles TypeScript to dist/)
 npm run build
 
-# Development mode
+# Development mode (run CLI without building)
 npm run dev
 
-# Test the CLI locally
+# Test the CLI locally with tsx
 tsx src/cli.ts --help
+
+# Clean build artifacts
+npm run clean
+
+# Prepare for publishing (clean + build)
+npm run prepublishOnly
 ```
+
+**Note**: The project currently has placeholder commands for `npm run test`, `npm run lint`, and `npm run format` that don't perform actual operations yet.
+
+## Project Architecture
+
+### Core Data Flow
+The tool follows a multi-source data collection → schema generation → file output pattern:
+
+1. **Schema Collection** (`src/schema-fetchers.ts`): Multiple strategies to fetch PocketBase collection schemas:
+   - `fromURLWithPassword`: API connection with admin credentials  
+   - `fromURLWithToken`: API connection with auth token
+   - `fromDatabase`: Direct SQLite database reading
+   - `fromJSON`: JSON file import
+   - Environment variable support via `dotenv-flow`
+
+2. **Generation Pipeline** (`src/generator.ts`): 
+   - `generate()`: Main orchestration function
+   - `createCollectionSchema()`: Per-collection schema generation
+   - Produces enum constants, record schemas, response schemas, and TypeScript types
+
+3. **Field Mapping** (`src/fields.ts`): Converts PocketBase field types to Zod schema definitions with proper type safety
+
+### Key Architecture Files
+- `src/main.ts` - Primary API entry point and orchestration
+- `src/generator.ts` - Core generation logic and template assembly  
+- `src/schema-fetchers.ts` - Data source abstraction strategies
+- `src/fields.ts` - PocketBase to Zod field type mapping
+- `src/types.ts` - TypeScript interfaces for the entire system
+- `src/constants.ts` - Code generation templates and system field definitions
+- `src/utils.ts` - File operations and utility functions
+- `src/cli.ts` - Command-line interface implementation
+
+### Generated Output Structure
+Each collection produces:
+1. Select field enum constants (e.g., `UsersRoleOptions`)
+2. Record schema for input validation (`UsersRecordSchema`) 
+3. Response schema with system fields (`UsersResponseSchema`)
+4. Inferred TypeScript types (`UsersRecord`, `UsersResponse`)
+
+### System Field Handling
+Collections are categorized as `base`, `auth`, or `view` types, each receiving appropriate system fields (id, created, updated, etc.) merged from predefined schemas in `src/constants.ts`.
 
 ## Environment Setup
 
-Create `.env` file:
+Create `.env` file for development:
 ```env
 PB_TYPEGEN_URL=http://127.0.0.1:8090
 PB_TYPEGEN_EMAIL=admin@example.com
 PB_TYPEGEN_PASSWORD=your-password
+# OR use token instead
+PB_TYPEGEN_TOKEN=your-auth-token
 ```
 
-## Generated Output Structure
-
-The tool generates TypeScript files with:
-1. Collection enums
-2. Select field option constants
-3. Zod record schemas (for input)
-4. Zod response schemas (with system fields)
-5. Inferred TypeScript types
-
-## Key Features
-
-- **Multiple Input Sources**: API, SQLite database, JSON export
-- **Type Safety**: Full TypeScript support with Zod validation
-- **Enum Support**: Proper select field handling with const assertions
-- **System Fields**: Separate handling for base vs auth collections
-- **Extensible**: Easy to add new field types and sources
-
-## Common Tasks
+## Common Development Tasks
 
 ### Adding New Field Types
-1. Add type mapping in `src/fields.ts` → `pbSchemaZodMap`
-2. Add constants in `src/constants.ts` if needed
-3. Update documentation in `.claude/ref/field-mapping.md`
+1. Add type mapping in `src/fields.ts` → `pbSchemaZodMap` function
+2. Add any new constants to `src/constants.ts` 
+3. Test with PocketBase collections containing the new field type
 
-### Adding New Schema Sources
-1. Create fetcher function in `src/schema-fetchers.ts`
-2. Add to main orchestration in `src/main.ts`
-3. Add CLI option in `src/cli.ts`
+### Adding New Schema Sources  
+1. Create new fetcher function in `src/schema-fetchers.ts`
+2. Add to main orchestration logic in `src/main.ts` → `generateZodSchemas()`
+3. Add CLI option in `src/cli.ts` using `commander` package
 
 ### Modifying Generated Output
-1. Update templates in `src/constants.ts`
-2. Modify generation logic in `src/generator.ts`
-3. Test with various PocketBase schemas
+1. Update string templates in `src/constants.ts`
+2. Modify generation logic in `src/generator.ts` → `createCollectionSchema()`
+3. Test output with various PocketBase schema configurations
 
-## Testing
+## Testing Approach
 
-Currently uses manual testing approach:
-1. Set up local PocketBase instance
-2. Create test collections with various field types
-3. Run generator and verify output
-4. Test generated schemas with real data
+Manual testing process (no automated test suite yet):
+1. Set up local PocketBase instance with test data
+2. Create collections with various field types (text, select, relation, etc.)
+3. Run generator: `tsx src/cli.ts --env --out test-output.ts`
+4. Verify generated schemas compile and validate correctly
 
-## Build and Release
+## TypeScript Configuration
 
-```bash
-# Build for production
-npm run build
-
-# Publish to npm
-npm publish
-```
+- Uses ES modules (`"type": "module"` in package.json)
+- Two TypeScript configs:
+  - `tsconfig.json`: Development with bundler module resolution
+  - `tsconfig.build.json`: Production build with Node module resolution
+- Build outputs to `dist/` with declaration files
 
 ## Dependencies
 
-- **Runtime**: `commander`, `cross-fetch`, `dotenv-flow`, `sqlite3`
-- **Peer**: `zod` (required for generated schemas)
-- **Development**: TypeScript tooling
+- **CLI**: `commander` for argument parsing
+- **HTTP**: `cross-fetch` for API requests  
+- **Database**: `sqlite3` + `sqlite` wrapper for direct DB access
+- **Environment**: `dotenv-flow` for .env file support
+- **Forms**: `form-data` for authentication requests
+- **Peer**: `zod` (required by generated schemas)
 
-## Architecture Patterns
+## Build and Publishing
 
-- **Strategy Pattern**: Multiple schema fetchers
-- **Factory Pattern**: Field type mapping
-- **Template Method**: Code generation
-- **Facade Pattern**: Main API abstraction
+```bash
+# Clean build
+npm run clean && npm run build
+
+# Publish to npm (runs prepublishOnly hook)
+npm publish
+```
