@@ -1,41 +1,29 @@
-# dependencies (bun install)
+# dependencies
 node_modules
 
-# output
-out
+# build output
 dist
 *.tgz
 
-# Generated files during development
-pocketbase-zod.ts
-index.ts
+# generated example output (root-level, from local runs)
+/pocketbase-zod.ts
+/pocketbase-zod/
 
-# But include scripts directory in git (not in npm via .npmignore)
-!scripts/
+# test scratch
+test/.tmp
 
-# code coverage
+# coverage
 coverage
 *.lcov
 
-# logs
-logs
-_.log
-report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
-
-# dotenv environment variable files
+# env
 .env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
+.env.*.local
 
 # caches
-.eslintcache
 .cache
 *.tsbuildinfo
 
-# IntelliJ based IDEs
+# editor / OS
 .idea
-
-# Finder (MacOS) folder config
 .DS_Store

@@ -5,38 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0]
+
+Ground-up rewrite and rename from **`pocketbase-zod-generator`** to **`pb-ts-zod`**.
 
 ### Added
-- Initial release of pocketbase-zod-generator
-- Zod schema generation from PocketBase collections
-- Support for select field enums with proper type safety
-- CLI interface with multiple input sources (API, SQLite, JSON)
-- Programmatic API for library usage
-- TypeScript support with full type definitions
-- GitHub Actions CI/CD pipelines
 
-### Features
-- ✨ Generate Zod schemas from PocketBase collections
-- 🔗 Proper enum support for select fields
-- 🔄 Multiple input sources: API endpoints, SQLite databases, JSON files
-- 🛡️ Full TypeScript support with type definitions
-- 📦 Both CLI and programmatic usage
-- 🎯 Comprehensive field type support (text, number, email, URL, dates, files, relations, etc.)
+- **Zod 4 output by default**, with a `--zod 3` compatibility flag for legacy projects.
+- **`node:sqlite` reader** — read collections directly from `pb_data/data.db` with zero native
+  dependencies (Node ≥ 22.5). Offline, no server, no credentials.
+- **Real validators**: `min`/`max`/`.regex(...)` for text, `.int()`/`min`/`max` for numbers,
+  `.max(n)` for multi-value arrays. Opt out with `--no-validators`.
+- **`geoPoint` field support** (PocketBase v0.27+) → `{ lon, lat }`.
+- **Record vs Response schemas**: system fields (`id`, `created`, `updated`, auth fields) are read
+  from the schema and placed only on the `*ResponseSchema`; hidden fields (`password`, `tokenKey`)
+  are excluded.
+- **Typed registries**: `Collections` enum, `CollectionRecords`, `CollectionResponses`, and a
+  runtime `Schemas` map.
+- **`--split` mode**: one module per collection plus a shared aliases module and an index.
+- A real test suite (Vitest) including tests that execute the generated Zod 4 output against real
+  records; Biome lint/format; TypeScript 7 typecheck; tsdown build.
 
-## [0.1.0] - 2025-01-XX
+### Changed
 
-### Added
-- Initial package structure and build system
-- Core functionality for schema generation
-- CLI implementation with commander.js
-- TypeScript configuration and build pipeline
-- Documentation and examples
-- MIT license with proper attribution to original pocketbase-typegen project
+- **Correct PocketBase v0.23+ authentication**: superuser auth via the `_superusers` collection
+  (the removed `/api/admins/auth-with-password` endpoint is kept only as a legacy fallback).
+- **Correct schema model**: reads the v0.23+ `fields` array with flattened options, falling back to
+  the legacy `schema`/`options` shape.
+- **PB-accurate dates**: `IsoDateString` accepts PocketBase's space-separated datetimes and the `""`
+  empty sentinel — where `z.iso.datetime()` would reject real API responses.
+- **Empty-value correctness**: optional `email`/`url`/single-`select` fields emit
+  `.or(z.literal(""))` to accept PocketBase's empty sentinel.
+- Dropped the `cross-fetch`, `form-data`, `sqlite`, and `sqlite3` dependencies (global `fetch` +
+  `node:sqlite`). The only runtime dependency is `commander`.
 
-### Technical
-- Modular architecture with separate concerns
-- TypeScript interfaces for all data structures
-- Comprehensive error handling
-- Build system with declaration file generation
-- npm package configuration for publishing
+### Migration from `pocketbase-zod-generator`
+
+- Binary renamed to `pb-ts-zod`. CLI flags remain compatible.
+- Generated output targets Zod 4 by default — pass `--zod 3` to keep the old idioms.
