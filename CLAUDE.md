@@ -16,12 +16,14 @@ Formerly published as `pocketbase-zod-generator`; rewritten for v1.0.
 npm run build       # tsdown -> dist/*.mjs (+ .d.mts)
 npm run dev         # tsx src/cli.ts
 npm run typecheck   # tsc --noEmit (TypeScript 7 native)
-npm run test        # vitest run
+npm run test        # vitest run  (unit tests)
 npm run lint        # biome check .
-npm run check       # typecheck + lint + test  (the CI gate)
+npm run check       # typecheck + lint + test  (the unit CI gate)
+npm run test:e2e    # build + bun test test-e2e/  (real PocketBase round-trip)
 ```
 
-Node ≥ 22.5 is required (`node:sqlite`).
+Node ≥ 22.5 is required (`node:sqlite`). The e2e suite additionally needs Bun and network access
+(first run downloads a PocketBase binary into `test-e2e/.pb-cache/`).
 
 ## Architecture (`src/`)
 
@@ -52,9 +54,16 @@ Node ≥ 22.5 is required (`node:sqlite`).
 
 ## Tests
 
-`test/fixtures/pb_schema.json` covers every field type across base/auth/view collections.
-`test/generated.test.ts` compiles the emitted Zod 4 source with esbuild and executes it against
-sample records — the load-bearing test that the output actually works.
+**Unit** (`test/`, Vitest, Node): `test/fixtures/pb_schema.json` covers every field type across
+base/auth/view collections. `test/generated.test.ts` compiles the emitted Zod 4 source with esbuild
+and executes it against sample records.
+
+**E2E** (`test-e2e/`, Bun): spins up a real PocketBase (`helpers/server.ts` — downloads + caches the
+binary, superuser upsert, serve, health wait), pushes a comprehensive schema + seed data
+(`fixtures/schema.ts`), generates from all three sources, and validates the generated Zod against
+live API responses. Bun-only (not in tsconfig/Biome scope); imports the generated `.ts` natively.
+Gotcha: PB's `--migrationsDir` is pinned inside the ephemeral data dir so auto-migrations don't leak
+across runs.
 
 ## Adding a field type
 

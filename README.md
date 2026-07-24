@@ -145,6 +145,25 @@ Plus a `Collections` enum and `CollectionRecords` / `CollectionResponses` / `Sch
 
 `pb-ts-zod` is the successor to `pocketbase-zod-generator`, rewritten from the ground up. Key differences: Zod 4 output, correct PocketBase v0.23+ superuser auth, a `node:sqlite` reader with no native deps, real validators, and PB-accurate date/empty-value handling. The CLI flags are compatible; the binary is now `pb-ts-zod`.
 
+## Development & testing
+
+```bash
+npm run check      # typecheck (tsc 7) + lint (Biome) + unit tests (Vitest)
+npm run test:e2e   # full round-trip against a real PocketBase (Bun)
+```
+
+Two layers of tests:
+
+- **Unit** (`test/`, Vitest) — field mapping, normalization, emitter output, and a suite that
+  compiles the generated Zod 4 source and executes it against sample records.
+- **End-to-end** (`test-e2e/`, Bun) — downloads a real PocketBase binary, provisions a fresh
+  instance with a comprehensive schema (every field type, base/auth/view, single & multi
+  select/relation/file, geoPoint, json, constraints, hidden fields) and seeded data (including file
+  uploads and empty-sentinel records), then generates schemas from **all three sources** (live URL,
+  `pb_schema.json`, and the SQLite file) and asserts the generated Zod **validates the actual API
+  responses** — plus that it rejects malformed data. First run downloads PocketBase (~15 MB, cached
+  under `test-e2e/.pb-cache/`); requires Bun and network access.
+
 ## License
 
 MIT © Martin Blasko

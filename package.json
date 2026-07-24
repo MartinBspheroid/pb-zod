@@ -26,6 +26,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "npm run build && bun test test-e2e/",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",

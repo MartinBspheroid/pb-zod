@@ -11,6 +11,8 @@ dist
 
 # test scratch
 test/.tmp
+test-e2e/.tmp
+test-e2e/.pb-cache
 
 # coverage
 coverage
