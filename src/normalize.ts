@@ -25,8 +25,12 @@ function normalizeField(raw: RawField): Field {
     pattern: prop<string>(raw, "pattern"),
     onlyInt: prop<boolean>(raw, "onlyInt"),
     maxSelect: prop<number>(raw, "maxSelect"),
+    minSelect: prop<number>(raw, "minSelect"),
     values: prop<string[]>(raw, "values"),
     collectionId: prop<string>(raw, "collectionId"),
+    autogeneratePattern: prop<string>(raw, "autogeneratePattern"),
+    onlyDomains: prop<string[]>(raw, "onlyDomains"),
+    exceptDomains: prop<string[]>(raw, "exceptDomains"),
   };
 }
 
@@ -43,7 +47,30 @@ export function normalizeCollection(raw: RawCollection): Collection {
     type: normalizeType(raw.type),
     system: Boolean(raw.system),
     fields: rawFields.map(normalizeField),
+    indexes: Array.isArray(raw.indexes) ? raw.indexes : [],
   };
+}
+
+/**
+ * True if `indexes` contains a single-column `CREATE UNIQUE INDEX` on exactly
+ * `fieldName`. PocketBase resolves a back-relation as a single object (not an
+ * array) when the source relation field is uniquely indexed.
+ */
+export function isUniqueSingleColumn(indexes: string[], fieldName: string): boolean {
+  const strip = (c: string) =>
+    c
+      .trim()
+      .replace(/^[`"[]/, "")
+      .replace(/[`"\]]$/, "")
+      .replace(/\s+(asc|desc)$/i, "")
+      .trim();
+  for (const idx of indexes) {
+    const m = /create\s+unique\s+index\s+.*?\bon\b\s+\S+\s*\(([^)]*)\)/i.exec(idx);
+    if (!m) continue;
+    const cols = m[1]!.split(",").map(strip);
+    if (cols.length === 1 && cols[0] === fieldName) return true;
+  }
+  return false;
 }
 
 /**

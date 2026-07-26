@@ -1,0 +1,61 @@
+[
+  {
+    "id": "authors00000001",
+    "name": "authors",
+    "type": "auth",
+    "system": false,
+    "fields": [
+      { "name": "id", "type": "text", "system": true, "required": true, "primaryKey": true, "min": 15, "max": 15, "pattern": "^[a-z0-9]+$" },
+      { "name": "name", "type": "text", "system": false, "required": false, "max": 80 },
+      { "name": "email", "type": "email", "system": true, "required": true },
+      { "name": "emailVisibility", "type": "bool", "system": true, "required": false },
+      { "name": "verified", "type": "bool", "system": true, "required": false },
+      { "name": "tokenKey", "type": "text", "system": true, "hidden": true, "required": true },
+      { "name": "password", "type": "password", "system": true, "hidden": true, "required": true },
+      { "name": "created", "type": "autodate", "system": true, "required": false, "onCreate": true },
+      { "name": "updated", "type": "autodate", "system": true, "required": false, "onCreate": true, "onUpdate": true }
+    ]
+  },
+  {
+    "id": "categories00001",
+    "name": "categories",
+    "type": "base",
+    "system": false,
+    "fields": [
+      { "name": "id", "type": "text", "system": true, "required": true, "primaryKey": true, "min": 15, "max": 15, "pattern": "^[a-z0-9]+$" },
+      { "name": "title", "type": "text", "system": false, "required": true, "min": 1 },
+      { "name": "parent", "type": "relation", "system": false, "required": false, "maxSelect": 1, "collectionId": "categories00001" },
+      { "name": "created", "type": "autodate", "system": true, "required": false, "onCreate": true }
+    ]
+  },
+  {
+    "id": "posts0000000001",
+    "name": "posts",
+    "type": "base",
+    "system": false,
+    "fields": [
+      { "name": "id", "type": "text", "system": true, "required": true, "primaryKey": true, "min": 15, "max": 15, "pattern": "^[a-z0-9]+$" },
+      { "name": "title", "type": "text", "system": false, "required": true, "min": 3 },
+      { "name": "slug", "type": "text", "system": false, "required": true, "autogeneratePattern": "[a-z0-9]{10}" },
+      { "name": "author", "type": "relation", "system": false, "required": true, "maxSelect": 1, "collectionId": "authors00000001" },
+      { "name": "reviewers", "type": "relation", "system": false, "required": false, "maxSelect": 5, "minSelect": 2, "collectionId": "authors00000001" },
+      { "name": "category", "type": "relation", "system": false, "required": false, "maxSelect": 1, "collectionId": "categories00001" },
+      { "name": "homepage", "type": "url", "system": false, "required": false, "onlyDomains": ["example.com"] },
+      { "name": "secret", "type": "text", "system": false, "hidden": true, "required": false },
+      { "name": "created", "type": "autodate", "system": true, "required": false, "onCreate": true }
+    ]
+  },
+  {
+    "id": "profiles000001",
+    "name": "profiles",
+    "type": "base",
+    "system": false,
+    "indexes": ["CREATE UNIQUE INDEX `idx_profiles_author` ON `profiles` (`author`)"],
+    "fields": [
+      { "name": "id", "type": "text", "system": true, "required": true, "primaryKey": true, "min": 10, "max": 10, "pattern": "^p[a-z0-9]+$" },
+      { "name": "author", "type": "relation", "system": false, "required": true, "maxSelect": 1, "collectionId": "authors00000001" },
+      { "name": "bio", "type": "editor", "system": false, "required": false },
+      { "name": "created", "type": "autodate", "system": true, "required": false, "onCreate": true }
+    ]
+  }
+]

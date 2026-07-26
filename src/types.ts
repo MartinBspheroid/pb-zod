@@ -46,10 +46,18 @@ export interface Field {
   onlyInt?: boolean;
   /** select / relation / file: 1 => scalar, >1 => array */
   maxSelect?: number;
+  /** relation only: minimum number of related records (array length floor) */
+  minSelect?: number;
   /** select: allowed values */
   values?: string[];
   /** relation: target collection id */
   collectionId?: string;
+  /** text: server auto-fills a value from this pattern -> optional on create */
+  autogeneratePattern?: string;
+  /** email/url: allow-list of domains (mutually exclusive with exceptDomains) */
+  onlyDomains?: string[];
+  /** email/url: deny-list of domains */
+  exceptDomains?: string[];
 }
 
 /** A normalized collection. */
@@ -59,6 +67,8 @@ export interface Collection {
   type: CollectionType;
   system: boolean;
   fields: Field[];
+  /** raw `CREATE INDEX` SQL strings (used to detect unique single-column relations) */
+  indexes: string[];
 }
 
 /** Raw field as returned by the PB API / stored in `_collections.fields`. */
@@ -76,8 +86,12 @@ export interface RawField {
   pattern?: string;
   onlyInt?: boolean;
   maxSelect?: number;
+  minSelect?: number;
   values?: string[];
   collectionId?: string;
+  autogeneratePattern?: string;
+  onlyDomains?: string[];
+  exceptDomains?: string[];
   /** pre-0.23 nested options */
   options?: Record<string, any>;
   [key: string]: any;
@@ -93,6 +107,8 @@ export interface RawCollection {
   fields?: RawField[];
   /** legacy (<=v0.22) */
   schema?: RawField[];
+  /** raw `CREATE INDEX` SQL strings */
+  indexes?: string[];
   [key: string]: any;
 }
 
@@ -106,6 +122,10 @@ export interface GenerateOptions {
   validators?: boolean;
   /** Emit a separate module per collection instead of one file. Default false. */
   split?: boolean;
+  /** Emit typed per-relation `expand` keys (Zod 4 only). Default true. */
+  expand?: boolean;
+  /** Include back-relation (`{coll}_via_{field}`) expand keys. Default true. */
+  backRelations?: boolean;
 }
 
 export interface EmitFile {

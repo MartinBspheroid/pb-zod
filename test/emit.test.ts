@@ -35,12 +35,46 @@ describe("generate — single file (Zod 4)", () => {
   it("puts system fields only in the Response schema, not the Record schema", async () => {
     const [file] = generate(await collections(), { zod: 4 });
     const c = file!.content;
-    const recordBlock = c.slice(c.indexOf("PostsRecordSchema"), c.indexOf("PostsResponseSchema"));
+    // anchor on the `export const` declarations (schema names also appear inside expand getters)
+    const recordBlock = c.slice(
+      c.indexOf("export const PostsRecordSchema"),
+      c.indexOf("export const PostsResponseSchema"),
+    );
     // user field present in record
     expect(recordBlock).toContain("title:");
     // system fields absent from record
     expect(recordBlock).not.toContain("\n  id:");
     expect(recordBlock).not.toContain("created:");
+  });
+
+  it("emits typed expand getters: forward (object/array) + back-relation", async () => {
+    const [file] = generate(await collections(), { zod: 4 });
+    const c = file!.content;
+    expect(c).toContain("get expand() {");
+    // single relation -> object; multi relation -> array
+    expect(c).toContain("author: UsersResponseSchema.optional(),");
+    expect(c).toContain("editors: z.array(UsersResponseSchema).optional(),");
+    // back-relations onto users (posts.author / posts.editors point here)
+    const usersExpand = c.slice(
+      c.indexOf("export const UsersResponseSchema"),
+      c.indexOf("export type UsersRecord"),
+    );
+    expect(usersExpand).toContain("posts_via_author: z.array(PostsResponseSchema).optional(),");
+    expect(usersExpand).toContain("posts_via_editors: z.array(PostsResponseSchema).optional(),");
+  });
+
+  it("--no-expand falls back to the generic record envelope (Zod 4)", async () => {
+    const [file] = generate(await collections(), { zod: 4, expand: false });
+    const c = file!.content;
+    expect(c).not.toContain("get expand() {");
+    expect(c).toContain("expand: z.record(z.string(), z.unknown()).optional(),");
+  });
+
+  it("--no-back-relations keeps forward keys but drops _via_ keys", async () => {
+    const [file] = generate(await collections(), { zod: 4, backRelations: false });
+    const c = file!.content;
+    expect(c).toContain("author: UsersResponseSchema.optional(),");
+    expect(c).not.toContain("_via_");
   });
 
   it("excludes hidden system fields (password, tokenKey) from auth output", async () => {
@@ -82,5 +116,7 @@ describe("generate — split mode", () => {
     expect(names).toContain("index.ts");
     const posts = files.find((f) => f.name === "posts.ts")!;
     expect(posts.content).toContain('from "./_shared.js"');
+    // expand getters need cross-file value imports of the referenced Response schemas
+    expect(posts.content).toContain('import { UsersResponseSchema } from "./users.js";');
   });
 });

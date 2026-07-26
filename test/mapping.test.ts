@@ -18,16 +18,52 @@ describe("zodForField — Zod 4 idioms", () => {
     expect(zodForField(field({ name: "d", type: "date" }), ctx4)).toBe("IsoDateString");
   });
 
-  it("maps the primary key to the record-id alias regardless of text constraints", () => {
+  it("maps a default primary key to the record-id alias", () => {
     const id = field({
       name: "id",
       type: "text",
       primaryKey: true,
       min: 15,
       max: 15,
-      pattern: "^x$",
+      pattern: "^[a-z0-9]+$",
     });
     expect(zodForField(id, ctx4)).toBe("RecordIdString");
+    // a view's pattern-only id also uses the alias
+    const viewId = field({ name: "id", type: "text", primaryKey: true, pattern: "^[a-z0-9]+$" });
+    expect(zodForField(viewId, ctx4)).toBe("RecordIdString");
+  });
+
+  it("emits explicit constraints for a customized primary key", () => {
+    const custom = field({
+      name: "id",
+      type: "text",
+      primaryKey: true,
+      min: 20,
+      max: 20,
+      pattern: "^u_[a-z0-9]+$",
+    });
+    expect(zodForField(custom, ctx4)).toBe(
+      'z.string().length(20).regex(new RegExp("^u_[a-z0-9]+$"))',
+    );
+  });
+
+  it("relation minSelect emits .min() on the array", () => {
+    const f = field({ name: "editors", type: "relation", maxSelect: 5, minSelect: 2 });
+    expect(zodForField(f, ctx4)).toBe("z.array(RecordIdString).min(2).max(5)");
+  });
+
+  it("email onlyDomains emits a domain refine", () => {
+    const f = field({ name: "e", type: "email", onlyDomains: ["Example.com"] });
+    expect(zodForField(f, ctx4)).toBe(
+      'z.email().refine((v) => ["example.com"].includes(v.slice(v.lastIndexOf("@") + 1).toLowerCase()))',
+    );
+  });
+
+  it("url exceptDomains emits a negated hostname refine, then empty-union when optional", () => {
+    const f = field({ name: "u", type: "url", required: false, exceptDomains: ["bad.example"] });
+    expect(zodForField(f, ctx4)).toBe(
+      'z.url().refine((v) => { try { return !["bad.example"].includes(new URL(v).hostname.toLowerCase()); } catch { return false; } }).or(z.literal("")).optional()',
+    );
   });
 
   it("applies text validators", () => {

@@ -11,6 +11,8 @@ interface CollectionRow {
   fields?: string;
   /** <=v0.22 */
   schema?: string;
+  /** JSON array of raw CREATE INDEX SQL strings */
+  indexes?: string;
 }
 
 function parseJsonColumn(value: string | undefined): unknown[] {
@@ -41,6 +43,7 @@ export function fromDatabase(dbPath: string, opts: { includeSystem?: boolean } =
       type: row.type,
       system: Boolean(row.system),
       fields: parseJsonColumn(row.fields ?? row.schema) as RawCollection["fields"],
+      indexes: parseJsonColumn(row.indexes) as string[],
     }));
     return normalizeCollections(raw, opts);
   } finally {

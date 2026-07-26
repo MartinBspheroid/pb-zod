@@ -16,6 +16,9 @@ export interface MapContext {
   validators: boolean;
 }
 
+/** PocketBase's default primary-key id pattern. */
+const DEFAULT_ID_PATTERN = "^[a-z0-9]+$";
+
 function toNumber(v: number | string | undefined): number | undefined {
   if (v === undefined || v === "") return undefined;
   const n = typeof v === "number" ? v : Number(v);
@@ -27,13 +30,55 @@ function isMulti(field: Field): boolean {
   return (field.maxSelect ?? 1) > 1;
 }
 
+/**
+ * Primary-key (`id`) mapping. The default 15-char lowercase id (and a view's
+ * pattern-only id) use the readable `RecordIdString` alias; a collection with a
+ * customized id length/pattern emits those constraints instead.
+ */
+function idExpr(field: Field, ctx: MapContext): string {
+  if (!ctx.validators) return ALIAS.recordId;
+  // PocketBase text min/max use 0 (the Go int zero value) to mean "unbounded".
+  const rawMin = toNumber(field.min);
+  const rawMax = toNumber(field.max);
+  const min = rawMin && rawMin > 0 ? rawMin : undefined;
+  const max = rawMax && rawMax > 0 ? rawMax : undefined;
+  const patternDefault = !field.pattern || field.pattern === DEFAULT_ID_PATTERN;
+  const lengthDefault = (min === undefined || min === 15) && (max === undefined || max === 15);
+  if (patternDefault && lengthDefault) return ALIAS.recordId;
+
+  let expr = "z.string()";
+  if (min !== undefined && min === max) expr += `.length(${min})`;
+  else {
+    if (min !== undefined) expr += `.min(${min})`;
+    if (max !== undefined) expr += `.max(${max})`;
+  }
+  if (field.pattern && field.pattern !== DEFAULT_ID_PATTERN) {
+    expr += `.regex(new RegExp(${JSON.stringify(field.pattern)}))`;
+  }
+  return expr;
+}
+
+/** email/url domain allow/deny lists -> a best-effort `.refine(...)`. */
+function withDomains(base: string, field: Field, kind: "email" | "url", ctx: MapContext): string {
+  if (!ctx.validators) return base;
+  const only = field.onlyDomains?.length ? field.onlyDomains : undefined;
+  const except = field.exceptDomains?.length ? field.exceptDomains : undefined;
+  const domains = only ?? except;
+  if (!domains) return base;
+  const list = JSON.stringify(domains.map((d) => d.toLowerCase()));
+  const negate = except ? "!" : "";
+  if (kind === "email") {
+    return `${base}.refine((v) => ${negate}${list}.includes(v.slice(v.lastIndexOf("@") + 1).toLowerCase()))`;
+  }
+  return `${base}.refine((v) => { try { return ${negate}${list}.includes(new URL(v).hostname.toLowerCase()); } catch { return false; } })`;
+}
+
 /** Build the base Zod expression for a field's *value* (before optional/nullable). */
 function baseExpr(field: Field, ctx: MapContext): string {
   const { dialect: d, validators } = ctx;
 
-  // The primary key (`id`) is always a record-id string, regardless of its
-  // underlying text constraints — keep it readable via the alias.
-  if (field.primaryKey) return ALIAS.recordId;
+  // The primary key (`id`): alias for the default id, explicit constraints if customized.
+  if (field.primaryKey) return idExpr(field, ctx);
 
   switch (field.type) {
     case "text":
@@ -68,10 +113,10 @@ function baseExpr(field: Field, ctx: MapContext): string {
       return "z.boolean()";
 
     case "email":
-      return d.email;
+      return withDomains(d.email, field, "email", ctx);
 
     case "url":
-      return d.url;
+      return withDomains(d.url, field, "url", ctx);
 
     case "date":
     case "autodate":
@@ -110,8 +155,14 @@ function baseExpr(field: Field, ctx: MapContext): string {
 
 function arrayOf(inner: string, field: Field, ctx: MapContext): string {
   let expr = `z.array(${inner})`;
-  if (ctx.validators && field.maxSelect && field.maxSelect > 1) {
-    expr += `.max(${field.maxSelect})`;
+  if (ctx.validators) {
+    // minSelect exists only on relation fields.
+    if (field.type === "relation" && field.minSelect && field.minSelect > 0) {
+      expr += `.min(${field.minSelect})`;
+    }
+    if (field.maxSelect && field.maxSelect > 1) {
+      expr += `.max(${field.maxSelect})`;
+    }
   }
   return expr;
 }

@@ -37,6 +37,14 @@ export class PbClient {
     });
   }
 
+  async updateCollection(idOrName: string, patch: Record<string, any>): Promise<any> {
+    return this.req(`/api/collections/${idOrName}`, {
+      method: "PATCH",
+      headers: this.headers(),
+      body: JSON.stringify(patch),
+    });
+  }
+
   async deleteCollection(nameOrId: string): Promise<void> {
     const res = await fetch(`${this.url}/api/collections/${nameOrId}`, {
       method: "DELETE",
@@ -65,12 +73,25 @@ export class PbClient {
     });
   }
 
-  async listRecords(collection: string): Promise<any[]> {
-    const res = await this.req(
-      `/api/collections/${collection}/records?perPage=500&skipTotal=1`,
-      { method: "GET", headers: this.headers(false) },
-    );
+  async listRecords(collection: string, opts: { expand?: string } = {}): Promise<any[]> {
+    const q = new URLSearchParams({ perPage: "500", skipTotal: "1" });
+    if (opts.expand) q.set("expand", opts.expand);
+    const res = await this.req(`/api/collections/${collection}/records?${q}`, {
+      method: "GET",
+      headers: this.headers(false),
+    });
     return res.items ?? [];
+  }
+
+  /** Fetch a single record, optionally with an `expand` query. */
+  async getRecord(collection: string, id: string, opts: { expand?: string } = {}): Promise<any> {
+    const q = new URLSearchParams();
+    if (opts.expand) q.set("expand", opts.expand);
+    const suffix = q.toString() ? `?${q}` : "";
+    return this.req(`/api/collections/${collection}/records/${id}${suffix}`, {
+      method: "GET",
+      headers: this.headers(false),
+    });
   }
 
   /** All collections (as PocketBase returns them, including system). */

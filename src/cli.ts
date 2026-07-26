@@ -33,6 +33,11 @@ program
   .option("--zod <version>", "Zod major version to target: 3 or 4", "4")
   .option("--split", "Emit one module per collection instead of a single file", false)
   .option("--no-validators", "Skip min/max/regex/int validators; emit bare types")
+  .option(
+    "--no-expand",
+    "Emit a generic z.record expand instead of typed keys (also implied by --zod 3)",
+  )
+  .option("--no-back-relations", 'Omit back-relation ("{coll}_via_{field}") expand keys')
   .option("--include-system", "Include PocketBase system collections (_superusers, …)", false)
   .action(async (opts) => {
     const zod = opts.zod === "3" ? 3 : 4;
@@ -53,6 +58,8 @@ program
       zod: zod as ZodTarget,
       split: Boolean(opts.split),
       validators: opts.validators !== false,
+      expand: opts.expand !== false,
+      backRelations: opts.backRelations !== false,
       includeSystem: Boolean(opts.includeSystem),
     };
 

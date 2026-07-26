@@ -10,6 +10,7 @@ import {
   toPascalCase,
   uniqueValues,
 } from "./naming.js";
+import { isUniqueSingleColumn } from "./normalize.js";
 import type { Collection, EmitFile, Field, GenerateOptions } from "./types.js";
 
 const HEADER = `/**
@@ -23,6 +24,17 @@ const IMPORTS = `import { z } from "zod";`;
 // empty date fields come back as `""`. This alias accepts both plus the ISO `T`
 // form, and is identical across Zod 3 and 4.
 const ISO_DATE_ALIAS = String.raw`z.string().regex(/^$|^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?Z?$/)`;
+
+/** Everything the per-collection emitter needs beyond the field mapping. */
+interface EmitCtx {
+  map: MapContext;
+  byId: Map<string, Collection>;
+  backIndex: Map<string, Array<{ src: Collection; field: Field }>>;
+  /** typed per-relation expand getters (Zod 4 + options.expand) */
+  useExpand: boolean;
+  /** include back-relation `{coll}_via_{field}` keys */
+  useBack: boolean;
+}
 
 function aliasBlock(): string {
   return `// ── Shared alias schemas ──────────────────────────────────────────────
@@ -57,25 +69,92 @@ function selectOptionsBlock(collections: Collection[]): string {
   )}`;
 }
 
-function fieldLine(field: Field, ctx: MapContext): string {
+function isRelation(f: Field): boolean {
+  return f.type === "relation" || f.type === "user";
+}
+
+function isMultiRelation(f: Field): boolean {
+  return (f.maxSelect ?? 1) > 1;
+}
+
+/** Fields the server fills in, so they're optional in the create/Record schema. */
+function isCreateOptional(field: Field): boolean {
+  return Boolean(field.primaryKey) || (field.type === "text" && Boolean(field.autogeneratePattern));
+}
+
+function responseFieldLine(field: Field, ctx: MapContext): string {
   return `  ${safeKey(field.name)}: ${zodForField(field, ctx)},`;
 }
 
-function collectionSchemas(c: Collection, ctx: MapContext): string {
-  const recordFields = c.fields.filter((f) => !f.system);
-  // System fields the API actually returns (id, created/updated autodate, auth email/verified…).
-  // Hidden system fields (password, tokenKey) are never serialized, so they're excluded.
+function recordFieldLine(field: Field, ctx: MapContext): string {
+  let expr = zodForField(field, ctx);
+  if (field.required && isCreateOptional(field)) expr += ".optional()";
+  return `  ${safeKey(field.name)}: ${expr},`;
+}
+
+/**
+ * Build the `get expand() { ... }` member for a Response schema, or null when the
+ * collection has no forward relations and no back-relations. Forward relations
+ * are typed as the target Response (object if single, array if multi); back
+ * relations (`{src}_via_{field}`) as arrays, or a single object when the source
+ * relation field carries a single-column UNIQUE index. Every key is optional.
+ */
+function buildExpandGetter(c: Collection, ctx: EmitCtx): string | null {
+  const lines: string[] = [];
+  const seen = new Set<string>();
+
+  for (const f of c.fields) {
+    if (!isRelation(f)) continue;
+    seen.add(f.name);
+    const target = f.collectionId ? ctx.byId.get(f.collectionId) : undefined;
+    if (!target) {
+      lines.push(`      ${safeKey(f.name)}: z.unknown().optional(),`);
+      continue;
+    }
+    const ref = responseSchemaName(target.name);
+    const value = isMultiRelation(f) ? `z.array(${ref})` : ref;
+    lines.push(`      ${safeKey(f.name)}: ${value}.optional(),`);
+  }
+
+  if (ctx.useBack) {
+    const backs = [...(ctx.backIndex.get(c.id) ?? [])].sort((a, b) =>
+      `${a.src.name}_via_${a.field.name}`.localeCompare(`${b.src.name}_via_${b.field.name}`),
+    );
+    for (const { src, field } of backs) {
+      const rawKey = `${src.name}_via_${field.name}`;
+      if (seen.has(rawKey)) continue; // a forward field of the same name wins
+      const ref = responseSchemaName(src.name);
+      const single = isUniqueSingleColumn(src.indexes, field.name);
+      const value = single ? ref : `z.array(${ref})`;
+      lines.push(`      ${safeKey(rawKey)}: ${value}.optional(),`);
+    }
+  }
+
+  if (lines.length === 0) return null;
+  return `  get expand() {\n    return z\n      .object({\n${lines.join(
+    "\n",
+  )}\n      })\n      .optional();\n  }`;
+}
+
+function collectionSchemas(c: Collection, ctx: EmitCtx): string {
+  const map = ctx.map;
+  // Hidden fields are never serialized by the API, so exclude them everywhere.
+  const recordFields = c.fields.filter((f) => !f.system && !f.hidden);
   const systemFields = c.fields.filter((f) => f.system && !f.hidden);
 
   const recordSchema = `export const ${recordSchemaName(c.name)} = z.object({\n${recordFields
-    .map((f) => fieldLine(f, ctx))
+    .map((f) => recordFieldLine(f, map))
     .join("\n")}\n});`;
 
-  const systemLines = systemFields.map((f) => fieldLine(f, ctx));
+  const systemLines = systemFields.map((f) => responseFieldLine(f, map));
   // Response envelope fields the API adds outside the collection schema.
   systemLines.push(`  collectionId: z.string(),`);
   systemLines.push(`  collectionName: z.literal(${JSON.stringify(c.name)}),`);
-  systemLines.push(`  expand: ${ctx.dialect.record}.optional(),`);
+  if (ctx.useExpand) {
+    systemLines.push(buildExpandGetter(c, ctx) ?? `  expand: z.object({}).optional(),`);
+  } else {
+    systemLines.push(`  expand: ${map.dialect.record}.optional(),`);
+  }
 
   const responseSchema = `export const ${responseSchemaName(c.name)} = ${recordSchemaName(
     c.name,
@@ -112,6 +191,40 @@ export type CollectionResponses = {\n${responses}\n};
 export const Schemas = {\n${schemas}\n} as const;`;
 }
 
+/** Build the id→collection map and the back-relation index over emitted collections. */
+function buildIndices(sorted: Collection[]): Pick<EmitCtx, "byId" | "backIndex"> {
+  const byId = new Map<string, Collection>();
+  for (const c of sorted) if (c.id) byId.set(c.id, c);
+
+  const backIndex = new Map<string, Array<{ src: Collection; field: Field }>>();
+  for (const src of sorted) {
+    for (const f of src.fields) {
+      if (!isRelation(f) || !f.collectionId || !byId.has(f.collectionId)) continue;
+      const list = backIndex.get(f.collectionId) ?? [];
+      list.push({ src, field: f });
+      backIndex.set(f.collectionId, list);
+    }
+  }
+  return { byId, backIndex };
+}
+
+/** Collections whose Response schema this collection's expand getter references. */
+function expandRefs(c: Collection, ctx: EmitCtx): string[] {
+  const refs = new Set<string>();
+  for (const f of c.fields) {
+    if (isRelation(f) && f.collectionId) {
+      const t = ctx.byId.get(f.collectionId);
+      if (t && t.name !== c.name) refs.add(t.name);
+    }
+  }
+  if (ctx.useBack) {
+    for (const { src } of ctx.backIndex.get(c.id) ?? []) {
+      if (src.name !== c.name) refs.add(src.name);
+    }
+  }
+  return [...refs].sort();
+}
+
 /**
  * Generate Zod schema source for the given collections.
  * Returns an array of files: one in the default mode, or several in `split` mode.
@@ -122,10 +235,20 @@ export function generate(collections: Collection[], options: GenerateOptions = {
   const d = dialect(zod);
   const sorted = [...collections].sort((a, b) => a.name.localeCompare(b.name));
 
-  const schemaBlocks = sorted.map((c) => {
-    const ctx: MapContext = { collectionName: c.name, dialect: d, validators };
-    return collectionSchemas(c, ctx);
+  // Typed expand relies on Zod 4 getters; Zod 3 / --no-expand fall back to z.record.
+  const useExpand = (options.expand ?? true) && zod === 4;
+  const useBack = options.backRelations ?? true;
+  const { byId, backIndex } = buildIndices(sorted);
+
+  const ctxFor = (c: Collection): EmitCtx => ({
+    map: { collectionName: c.name, dialect: d, validators },
+    byId,
+    backIndex,
+    useExpand,
+    useBack,
   });
+
+  const schemaBlocks = sorted.map((c) => collectionSchemas(c, ctxFor(c)));
 
   if (!options.split) {
     const parts = [
@@ -154,7 +277,7 @@ export function generate(collections: Collection[], options: GenerateOptions = {
   files.push({ name: "_shared.ts", content: `${shared}\n` });
 
   for (const c of sorted) {
-    const ctx: MapContext = { collectionName: c.name, dialect: d, validators };
+    const ctx = ctxFor(c);
     const hasSelect = c.fields.some((f) => f.type === "select" && (f.values?.length ?? 0) > 0);
     const imports: string[] = [
       IMPORTS,
@@ -165,6 +288,13 @@ export function generate(collections: Collection[], options: GenerateOptions = {
         .filter((f) => f.type === "select" && (f.values?.length ?? 0) > 0)
         .map((f) => optionsConstName(c.name, f.name));
       imports.push(`import { ${consts.join(", ")} } from "./_shared.js";`);
+    }
+    if (useExpand) {
+      // Cross-file value imports for expand targets. Circular imports are safe:
+      // the getter defers access until after all modules finish loading.
+      for (const ref of expandRefs(c, ctx)) {
+        imports.push(`import { ${responseSchemaName(ref)} } from "./${ref}.js";`);
+      }
     }
     const body = [HEADER, imports.join("\n"), collectionSchemas(c, ctx)].join("\n\n");
     files.push({ name: `${c.name}.ts`, content: `${body}\n` });

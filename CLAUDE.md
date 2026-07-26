@@ -46,7 +46,13 @@ Node ≥ 22.5 is required (`node:sqlite`). The e2e suite additionally needs Bun 
   and `""` — not `z.iso.datetime()`, which rejects both.
 - **Empty sentinel**: optional `email`/`url`/single-`select` need `.or(z.literal(""))`.
 - **System fields** come from the schema (`system: true`) and belong on the Response schema only;
-  hidden fields (`password`, `tokenKey`) are excluded.
+  **all `hidden` fields are excluded** from both Record and Response (never serialized).
+- **Text min/max of `0` = unbounded** (Go int zero value) — never emit `.length(0)`/`.min(0)` for
+  text/id. (Number min/max are nullable pointers, so `0` there is a real bound.)
+- **Typed `expand`** uses Zod 4 **getters** (`get expand() { return z.object({…}).optional() }`) —
+  the only idiom that typechecks recursively (verified; `z.lazy` fails). Keep `.extend()` (not the
+  spread form, which evaluates the getter eagerly). Zod-4-only; `--zod 3`/`--no-expand` → generic
+  `z.record`. Back-relation is a single object iff a single-column `CREATE UNIQUE INDEX` exists.
 - **Auth**: superuser auth is the `_superusers` collection endpoint (v0.23+); `/api/admins/...` is a
   legacy fallback only.
 - **Build**: `node:sqlite` must stay a `node:`-prefixed external in `dist` (tsdown handles this;
