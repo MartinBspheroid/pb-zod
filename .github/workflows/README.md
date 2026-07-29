@@ -1,29 +1,50 @@
-# GitHub Actions Workflows
+# GitHub Actions workflows
 
-Simple and streamlined CI/CD for pocketbase-zod-generator.
+CI/CD for `pb-ts-zod`.
 
-## 🔄 Workflows
+## Workflows
+
+Both workflows run on Node 22 — the package requires ≥ 22.5 for `node:sqlite`.
 
 ### CI (`ci.yml`)
-- **Triggers**: Push to main, Pull Requests to main
-- **Purpose**: Build and test the project
-- **Steps**: Install → Build → Test CLI
 
-### Release (`release.yml`)  
-- **Triggers**: Version tags (`v*`)
-- **Purpose**: Publish to npm and create GitHub releases
-- **Steps**: Install → Build → Publish → Release
+- **Triggers**: pushes to `main`, pull requests targeting `main`
+- **Steps**: `actions/checkout` → `setup-node` → `npm ci` → **`npm run check`** (typecheck + Biome +
+  unit tests) → `npm run build` → CLI smoke check (`--version`, `--help`, and a real generation run
+  against `test/fixtures/pb_schema.json`)
 
-## 📦 Release Process
+### Release (`release.yml`)
 
-1. Update version in package.json
-2. Create and push a git tag:
+- **Triggers**: pushed tags matching `v*`
+- **Steps**: `actions/checkout` → `setup-node` (npm registry) → `npm ci` → **`npm run check`** →
+  `npm run build` → `npm publish` → `softprops/action-gh-release` with
+  `generate_release_notes: true`
+
+## Release process
+
+1. Bump the version in `package.json` and update `CHANGELOG.md`
+2. Commit, then tag and push:
+
    ```bash
-   git tag v1.0.0
-   git push origin v1.0.0
+   VERSION=$(node -p "require('./package.json').version")
+   git tag "v$VERSION"
+   git push origin main --follow-tags
    ```
-3. The release workflow automatically publishes to npm and creates a GitHub release
 
-## 🔧 Required Secrets
+3. The release workflow publishes to npm and creates the GitHub release
 
-- `NPM_TOKEN`: npm automation token for publishing
+`scripts/release.sh <patch|minor|major>` automates steps 1–2. See [DEPLOYMENT.md](../../DEPLOYMENT.md)
+for the full guide.
+
+## Required secrets
+
+| Secret | Purpose |
+| --- | --- |
+| `NPM_TOKEN` | npm *Automation* token with publish permission |
+| `GITHUB_TOKEN` | provided automatically; needs Contents: write for releases |
+
+## Not covered by CI
+
+The end-to-end suite (`npm run test:e2e`) is **not** wired into CI — it needs Bun and downloads a
+PocketBase binary. Run it locally before releasing, and for any change to field mapping, emission,
+or the fetchers.

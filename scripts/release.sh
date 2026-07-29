@@ -50,4 +50,4 @@ git push origin main --follow-tags
 
 echo "✅ Release v$NEW_VERSION completed!"
 echo "🎯 GitHub Actions will handle publishing to npm"
-echo "🔗 Monitor progress: https://github.com/martinblasko/pocketbase-zod-generator/actions"
+echo "🔗 Monitor progress: https://github.com/MartinBspheroid/pb-zod/actions"

@@ -1,49 +1,78 @@
 #!/usr/bin/env node
+import { createRequire } from "node:module";
+import { Command } from "commander";
+import { DEFAULT_OUT, DEFAULT_OUT_DIR, type RunOptions, run } from "./run.js";
+import type { ZodTarget } from "./types.js";
 
-import { program } from "commander";
-import { generateZodSchemas } from "./main.js";
+const require = createRequire(import.meta.url);
+const pkg = require("../package.json") as { version: string };
 
-const version = "0.1.0";
+const program = new Command();
 
 program
-  .name("pocketbase-zod-generator")
-  .version(version)
-  .description("CLI to create Zod schemas for your pocketbase.io records.")
-  .option(
-    "-u, --url <url>",
-    "URL to your hosted pocketbase instance. Must provide email/password or an auth token."
+  .name("pb-ts-zod")
+  .version(pkg.version)
+  .description(
+    "Generate Zod schemas + TypeScript types from PocketBase collections.\n" +
+      "Works offline from a SQLite file or pb_schema.json, or live from a running instance.",
   )
   .option(
-    "--email <email>",
-    "Email for a pocketbase admin. Use with --url."
+    "-d, --db <path>",
+    "PocketBase SQLite database file (pb_data/data.db) — offline, no server",
   )
+  .option("-j, --json <path>", "pb_schema.json export file — offline, no server")
+  .option("-u, --url <url>", "URL of a running PocketBase instance")
+  .option("--email <email>", "Superuser email (with --url)")
+  .option("-p, --password <password>", "Superuser password (with --url)")
+  .option("-t, --token <token>", "Superuser auth token (with --url)")
   .option(
-    "-p, --password <password>",
-    "Password for a pocketbase admin. Use with --url."
+    "--env [path]",
+    "Read PB_TYPEGEN_URL / _EMAIL / _PASSWORD / _TOKEN from env or a .env file",
   )
+  .option("-o, --out <path>", "Output file, or directory when --split is set")
+  .option("--zod <version>", "Zod major version to target: 3 or 4", "4")
+  .option("--split", "Emit one module per collection instead of a single file", false)
+  .option("--no-validators", "Skip min/max/regex/int validators; emit bare types")
   .option(
-    "-t, --token <token>",
-    "Auth token for a pocketbase admin. Use with --url."
+    "--no-expand",
+    "Emit a generic z.record expand instead of typed keys (also implied by --zod 3)",
   )
-  .option("-d, --db <path>", "Path to the pocketbase SQLite database.")
-  .option(
-    "-j, --json <path>",
-    "Path to JSON schema exported from pocketbase admin UI."
-  )
-  .option(
-    "--env [dir]",
-    "Use environment variables for configuration. Add PB_TYPEGEN_URL, PB_TYPEGEN_EMAIL, PB_TYPEGEN_PASSWORD to your .env file. Optionally provide a path to a directory containing a .env file.",
-    true
-  )
-  .option(
-    "-o, --out <path>",
-    "Path to save the Zod schema output file.",
-    "pocketbase-zod.ts"
-  );
+  .option("--no-back-relations", 'Omit back-relation ("{coll}_via_{field}") expand keys')
+  .option("--include-system", "Include PocketBase system collections (_superusers, …)", false)
+  .action(async (opts) => {
+    const zod = opts.zod === "3" ? 3 : 4;
+    if (opts.zod !== "3" && opts.zod !== "4") {
+      console.error(`Invalid --zod value "${opts.zod}". Use 3 or 4.`);
+      process.exit(1);
+    }
 
-program.parse(process.argv);
-const options = program.opts();
-generateZodSchemas({
-  ...options,
-  out: options.out || "pocketbase-zod.ts"
-});
+    const options: RunOptions = {
+      db: opts.db,
+      json: opts.json,
+      url: opts.url,
+      email: opts.email,
+      password: opts.password,
+      token: opts.token,
+      env: opts.env,
+      out: opts.out ?? (opts.split ? DEFAULT_OUT_DIR : DEFAULT_OUT),
+      zod: zod as ZodTarget,
+      split: Boolean(opts.split),
+      validators: opts.validators !== false,
+      expand: opts.expand !== false,
+      backRelations: opts.backRelations !== false,
+      includeSystem: Boolean(opts.includeSystem),
+    };
+
+    try {
+      const result = await run(options);
+      const target = result.files.length === 1 ? result.files[0] : `${result.files.length} files`;
+      console.error(
+        `✓ Generated Zod ${zod} schemas for ${result.collections} collection(s) → ${target}`,
+      );
+    } catch (err) {
+      console.error(`✗ ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program.parseAsync(process.argv);

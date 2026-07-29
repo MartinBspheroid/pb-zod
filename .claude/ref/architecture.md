@@ -1,183 +1,193 @@
-# PocketBase Zod Generator - Architecture Overview
+# Architecture
 
-## Project Structure
+Internal reference for `pb-ts-zod` — a CLI + library that turns PocketBase collection
+definitions into Zod schemas and TypeScript types.
+
+## Module layout
 
 ```
 src/
-├── main.ts           # Main orchestration and entry point
-├── cli.ts            # Command-line interface
-├── types.ts          # Core type definitions
-├── generator.ts      # Core generation logic
-├── schema-fetchers.ts # Data source strategies
-├── fields.ts         # Field type mapping and processing
-├── constants.ts      # Code templates and constants
-├── utils.ts          # Utility functions
-└── collections.ts    # Collection enum generation
+├── cli.ts              # commander CLI -> RunOptions -> run()
+├── index.ts            # public API surface (re-exports)
+├── run.ts              # source selection + orchestration
+├── io.ts               # .env parsing, file writing
+├── types.ts            # internal Collection/Field model + raw PB shapes
+├── normalize.ts        # raw PB (modern or legacy) -> internal model
+├── dialect.ts          # the Zod v3 vs v4 surface differences
+├── mapping.ts          # one Field -> one Zod expression  (core logic)
+├── naming.ts           # identifier/name derivation
+├── emit.ts             # assembles the output file(s)
+└── fetchers/
+    ├── sqlite.ts       # node:sqlite reader (pb_data/data.db)
+    ├── json.ts         # pb_schema.json export
+    └── remote.ts       # live instance over HTTP
 ```
 
-## Design Patterns
+Dependency flow is one-way:
 
-### 1. Strategy Pattern
-- **Schema Fetchers**: Multiple strategies for retrieving PocketBase schemas
-  - `fromDatabase()` - Direct SQLite access
-  - `fromJSON()` - JSON file parsing
-  - `fromURLWithToken()` - API with token auth
-  - `fromURLWithPassword()` - API with email/password auth
-
-### 2. Template Method Pattern
-- **Code Generation**: Consistent structure for generated TypeScript code
-- **Field Processing**: Standardized approach to field type conversion
-
-### 3. Factory Pattern
-- **Field Type Mapping**: `pbSchemaZodMap` creates appropriate Zod schemas
-- **System Fields**: Different schemas for base vs auth collections
-
-### 4. Facade Pattern
-- **Main Module**: Abstracts complexity of different input sources
-- **CLI Module**: Simplifies command-line interaction
-
-## Data Flow
-
-```mermaid
-graph TD
-    A[CLI Input] --> B[Main Controller]
-    B --> C{Input Source}
-    C -->|--db| D[fromDatabase]
-    C -->|--json| E[fromJSON]
-    C -->|--url + token| F[fromURLWithToken]
-    C -->|--url + email/pwd| G[fromURLWithPassword]
-    C -->|--env| H[Environment Variables]
-    
-    D --> I[PocketBaseCollection[]]
-    E --> I
-    F --> I
-    G --> I
-    H --> I
-    
-    I --> J[Generator.generate()]
-    J --> K[createCollectionSchema()]
-    K --> L[createSelectOptions()]
-    K --> M[createZodField()]
-    K --> N[System Fields Merge]
-    
-    L --> O[Generated Code String]
-    M --> O
-    N --> O
-    
-    O --> P[saveFile()]
-    P --> Q[Output .ts File]
+```
+fetchers/* ──> normalize ──> types
+                   │
+run / cli ─────────┼──> emit ──> mapping ──> naming
+   │               │        └──> dialect
+   └──> io         └──> normalize (isUniqueSingleColumn)
 ```
 
-## Core Components
+`emit.ts` never touches I/O or the network; the fetchers never know about Zod. `run.ts` is the
+only module that wires a source to the emitter to the filesystem, and `cli.ts` is a thin
+argument-parsing shell over it.
 
-### 1. Schema Processing Pipeline
-1. **Input**: Multiple sources (DB, JSON, API)
-2. **Transformation**: PocketBase schema → Internal types
-3. **Generation**: Internal types → Zod schemas
-4. **Output**: TypeScript file with schemas and types
+## Pipeline
 
-### 2. Field Type System
-- **Base Types**: text, number, bool, email, url, date, password
-- **Special Types**: select (with enums), json, file, relation, editor
-- **Modifiers**: required/optional, array (multi-select)
-- **Validation**: Email, URL, datetime, string length
-
-### 3. System Fields Architecture
-- **Base Collections**: id, collectionId, collectionName, created, updated, expand
-- **Auth Collections**: Extends base with email, emailVisibility, username, verified
-- **Type Safety**: Separate record vs response schemas
-
-## Key Design Decisions
-
-### 1. Type Safety First
-- Strong TypeScript typing throughout
-- Zod schemas provide runtime validation
-- Generated types match PocketBase API responses
-
-### 2. Extensibility
-- Plugin architecture for field types
-- Easy to add new schema sources
-- Modular component design
-
-### 3. Code Generation Strategy
-- Template-based approach for consistency
-- String concatenation for performance
-- Sorted output for deterministic results
-
-### 4. Error Handling
-- Graceful fallbacks for unknown field types
-- Clear error messages for configuration issues
-- Process exit on authentication failures
-
-## Module Dependencies
-
-```mermaid
-graph TD
-    A[cli.ts] --> B[main.ts]
-    B --> C[schema-fetchers.ts]
-    B --> D[generator.ts]
-    B --> E[utils.ts]
-    
-    C --> F[types.ts]
-    D --> F
-    D --> G[constants.ts]
-    D --> H[fields.ts]
-    D --> I[collections.ts]
-    D --> E
-    
-    H --> F
-    H --> G
-    H --> E
-    
-    I --> E
-    E --> F
+```
+RawCollection[]  ──normalizeCollections()──>  Collection[]
+                                                   │
+                                          generate(collections, options)
+                                                   │
+                                              EmitFile[]  ──writeFiles()──> disk
 ```
 
-## Performance Considerations
+- `collectFromSource(options)` (`run.ts:28`) picks exactly one of `--db` / `--json` / `--url` /
+  `--env` and returns already-normalized `Collection[]`. Every fetcher calls
+  `normalizeCollections` itself, so all three sources converge on the same model.
+- `generateFiles(options)` stops after `generate` (no disk writes) — that's the hook for
+  programmatic consumers.
+- `run(options)` does the whole thing and returns `{ collections, files }`.
 
-### 1. Batch Processing
-- Fetches all collections in parallel where possible
-- Minimal database queries (single `_collections` table read)
+## Internal model
 
-### 2. Memory Efficiency
-- Streaming approach for large schemas
-- Template-based generation avoids AST overhead
+`Collection` and `Field` (`types.ts:31`, `types.ts:64`) exist because PocketBase v0.23 changed the
+wire shape:
 
-### 3. Caching Strategy
-- No built-in caching (stateless design)
-- File system write is final step
+| | ≤ v0.22 | v0.23+ |
+| --- | --- | --- |
+| field array | `schema` | `fields` |
+| type-specific options | nested `options: {...}` | flattened onto the field |
 
-## Security Considerations
+`normalize.ts` absorbs both. `prop<T>(raw, key)` (`normalize.ts:6`) reads the flattened key and
+falls back to `raw.options[key]`, normalizing `null` to `undefined` so downstream `!== undefined`
+checks behave. `normalizeCollection` reads `raw.fields ?? raw.schema ?? []`.
 
-### 1. Authentication
-- Supports both token and email/password auth
-- Environment variable support for credentials
-- FormData for PocketBase API compatibility
+`normalizeCollections` also drops system collections (`c.system` or a leading `_`) unless
+`includeSystem` is set.
 
-### 2. Input Validation
-- Type checking on all inputs
-- Sanitization of field names
-- Safe file path handling
+`Collection.indexes` carries the raw `CREATE INDEX` SQL strings — needed later for back-relation
+cardinality.
 
-### 3. Generated Code Safety
-- No code injection risks (template-based)
-- Proper escaping of field names
-- Const assertions for type safety
+## Emitter structure
 
-## Extension Points
+`generate()` (`emit.ts:232`) sorts collections by name (stable output) and assembles blocks:
 
-### 1. New Field Types
-- Add to `pbSchemaZodMap` in `fields.ts`
-- Define validation rules and array handling
+1. `HEADER` — `@generated` banner.
+2. `IMPORTS` — `import { z } from "zod";`
+3. `aliasBlock()` — `RecordIdString`, `IsoDateString`, `HTMLString`, `GeoPoint`.
+4. `collectionsEnum()` — `export enum Collections`.
+5. `selectOptionsBlock()` — every select field's `as const` values array, emitted once globally so
+   any schema can reference it.
+6. One `collectionSchemas()` block per collection.
+7. `registryBlock()` — `CollectionRecords`, `CollectionResponses`, and the runtime `Schemas` map.
 
-### 2. New Schema Sources
-- Implement `SchemaFetcher` interface
-- Add to main.ts orchestration logic
+### Single-file vs `--split`
 
-### 3. Custom Output Formats
-- Modify `generator.ts` for different templates
-- Add new constant templates in `constants.ts`
+Default: all blocks joined into one `pocketbase-zod.ts`.
 
-### 4. Advanced Validation
-- Extend field processing in `fields.ts`
-- Add custom Zod validators in `constants.ts`
+`--split` emits:
+
+- `_shared.ts` — header, imports, aliases, `Collections`, select options.
+- `<collection>.ts` — one per collection, importing aliases/option consts from `./_shared.js` and
+  **value** imports of each expand target's Response schema.
+- `index.ts` — `export *` of everything plus the registry block.
+
+The cross-file expand imports are genuinely circular (`posts.ts` imports `authors.ts` and vice
+versa). That is safe: the `expand` member is a **getter**, so the referenced schema is only read
+when the getter runs — long after all modules have finished evaluating. `expandRefs()`
+(`emit.ts:212`) computes exactly which targets a collection needs and excludes self-references.
+
+## Record vs Response
+
+`collectionSchemas()` (`emit.ts:139`) splits a collection's fields:
+
+- `recordFields` = `!f.system && !f.hidden` → the `*RecordSchema` (what you create/update).
+- `systemFields` = `f.system && !f.hidden` → appended to the `*ResponseSchema` only.
+- **Hidden fields are excluded from both** — the API never serializes them.
+
+The Response schema is `RecordSchema.extend({ ...systemFields, collectionId, collectionName, expand })`.
+`.extend()` is required here, not the `z.object({ ...Record.shape, ... })` spread form — a spread
+evaluates the `expand` getter eagerly and breaks the recursion.
+
+`isCreateOptional()` (`emit.ts:81`) marks the primary key and any text field with an
+`autogeneratePattern` as `.optional()` in the Record schema even when `required`, because the
+server fills them in.
+
+## Typed expand
+
+`buildExpandGetter()` (`emit.ts:102`) emits:
+
+```ts
+get expand() {
+  return z
+    .object({
+      author: AuthorsResponseSchema.optional(),                  // single forward relation
+      reviewers: z.array(AuthorsResponseSchema).optional(),      // maxSelect > 1
+      posts_via_author: z.array(PostsResponseSchema).optional(), // back-relation
+      profiles_via_author: ProfilesResponseSchema.optional(),    // uniquely indexed -> single
+    })
+    .optional();
+}
+```
+
+Supporting pieces:
+
+- `buildIndices()` (`emit.ts:195`) builds `byId` (collection id → collection) and `backIndex`
+  (target collection id → list of `{ src, field }` relations pointing at it). Both are computed
+  once over the emitted set, so a relation to a filtered-out collection degrades to
+  `z.unknown().optional()`.
+- Forward relations win over a same-named back-relation key (`seen` set).
+- `isUniqueSingleColumn(indexes, fieldName)` (`normalize.ts:59`) decides back-relation cardinality:
+  PocketBase resolves the reverse side as a single object rather than an array when the source
+  relation field carries a single-column `CREATE UNIQUE INDEX`.
+
+**Why getters.** Recursive/circular schemas need deferred evaluation, and the Zod 4 getter idiom is
+the only one that typechecks — `z.lazy()` loses the inferred type across the cycle. This is
+Zod-4-only; `useExpand` is `(options.expand ?? true) && zod === 4` (`emit.ts:239`), so `--zod 3` and
+`--no-expand` both fall back to the generic `dialect.record` envelope.
+
+## Zod 3/4 dialect seam
+
+`dialect.ts` is the single place that knows about version differences:
+
+| | Zod 3 | Zod 4 |
+| --- | --- | --- |
+| `email` | `z.string().email()` | `z.email()` |
+| `url` | `z.string().url()` | `z.url()` |
+| `record` | `z.record(z.unknown())` | `z.record(z.string(), z.unknown())` |
+
+Deliberately **not** in the dialect: the date schema. PocketBase serializes datetimes as
+`2022-01-01 10:00:00.123Z` (space, not `T`) and returns `""` for unset dates — both rejected by
+`z.iso.datetime()` and `z.string().datetime()` alike. `ISO_DATE_ALIAS` (`emit.ts:26`) is a
+hand-written regex that is identical on both versions.
+
+## Extension points
+
+**Adding a field type**
+
+1. Add it to `FieldType` in `types.ts:12`.
+2. Add a `case` to `baseExpr()` in `mapping.ts:77` (unknown types already fall through to
+   `z.unknown()`).
+3. If it needs a new option, add it to `Field`/`RawField` and to `normalizeField()` via `prop()`.
+4. Extend `test/fixtures/pb_schema.json` and assert in `mapping.test.ts` / `generated.test.ts`.
+
+**Adding a fetcher**
+
+Drop a module in `src/fetchers/` that returns `Promise<Collection[]>` (or `Collection[]`) by calling
+`normalizeCollections(raw, opts)`, then wire it into `collectFromSource()` and the CLI options.
+
+## Tests
+
+- `test/` — Vitest on Node. Unit coverage of normalize, mapping, and emit, plus
+  `generated.test.ts` / `features.test.ts`, which compile the emitted source with esbuild and
+  execute the resulting Zod schemas against sample records.
+- `test-e2e/` — Bun. Downloads and runs a real PocketBase, provisions a schema, generates from all
+  three sources, and validates the output against live API responses. It is **outside** the
+  `tsconfig.json` and Biome scopes (Bun-specific APIs, native `.ts` imports), so `npm run typecheck`
+  and `npm run lint` do not cover it.

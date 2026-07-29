@@ -1,385 +1,368 @@
-# PocketBase Zod Generator - API Reference
+# pb-ts-zod — API Reference
 
-## Main Entry Point
+The programmatic surface is exactly what `src/index.ts` re-exports. Anything else in `src/`
+(`io.ts`, `dialect.ts`, `mapping.ts`, `naming.ts`, `isUniqueSingleColumn`) is internal and may
+change without a major bump.
 
-### `generateZodSchemas(options: GenerationOptions): Promise<string | undefined>`
-
-**Location**: `src/main.ts`
-
-Primary function for generating Zod schemas from PocketBase collections.
-
-**Parameters**:
-- `options: GenerationOptions` - Configuration object
-
-**Returns**:
-- `Promise<string | undefined>` - Generated TypeScript code string or undefined on error
-
-**Example**:
-```typescript
-import { generateZodSchemas } from 'pocketbase-zod-generator';
-
-// Generate from API
-const schemas = await generateZodSchemas({
-  url: 'http://127.0.0.1:8090',
-  email: 'admin@example.com',
-  password: 'your-password',
-  out: './pocketbase-zod.ts'
-});
-
-// Generate from database
-const schemas = await generateZodSchemas({
-  db: './pb_data/data.db',
-  out: './pocketbase-zod.ts'
-});
+```ts
+import {
+  generate,
+  fromDatabase, fromJSON, fromURL,
+  normalizeCollection, normalizeCollections,
+  collectFromSource, generateFiles, run,
+  DEFAULT_OUT, DEFAULT_OUT_DIR,
+} from "pb-ts-zod";
 ```
 
-## Types
+The package is ESM-only (`"type": "module"`), Node ≥ 22.5.
 
-### `GenerationOptions`
+---
 
-**Location**: `src/types.ts`
+## Pipeline
 
-Configuration interface for schema generation.
+```
+source ──▶ RawCollection[] ──▶ normalizeCollections ──▶ Collection[] ──▶ generate ──▶ EmitFile[]
+(db/json/url)                                        (internal model)              (source text)
+```
 
-```typescript
-interface GenerationOptions {
-  db?: string;           // Path to PocketBase SQLite database
-  json?: string;         // Path to JSON schema file
-  url?: string;          // PocketBase instance URL
-  email?: string;        // Admin email (with url)
-  password?: string;     // Admin password (with url)
-  token?: string;        // Auth token (with url)
-  env?: string | boolean; // Use environment variables
-  out?: string;          // Output file path
+`run()` wraps the whole chain and writes to disk. `generateFiles()` stops one step short and hands
+back the file contents. `generate()` is the pure, synchronous core.
+
+---
+
+## Fetchers
+
+Each fetcher returns an already-normalized `Collection[]` — system collections (`system: true` or a
+leading `_`) are dropped unless `includeSystem` is set.
+
+### `fromDatabase`
+
+```ts
+function fromDatabase(
+  dbPath: string,
+  opts?: { includeSystem?: boolean },
+): Collection[]
+```
+
+**Synchronous.** Opens `pb_data/data.db` read-only via `node:sqlite` and reads
+`SELECT * FROM _collections`. Field definitions come from the `fields` column (`schema` before
+PB v0.23); the `indexes` column supplies the raw index SQL. No server, no credentials, no native
+dependency.
+
+Requires Node ≥ 22.5 for `node:sqlite`. In a bundled build, `node:sqlite` must stay a
+`node:`-prefixed external — bundlers that strip the prefix break this import.
+
+### `fromJSON`
+
+```ts
+async function fromJSON(
+  path: string,
+  opts?: { includeSystem?: boolean },
+): Promise<Collection[]>
+```
+
+Reads a `pb_schema.json` export (Dashboard → Settings → Export collections). Accepts both a bare
+array and a `{ "collections": [...] }` wrapper. Throws with the file path on invalid JSON or an
+unexpected shape.
+
+### `fromURL`
+
+```ts
+interface RemoteAuth {
+  token?: string;     // pre-obtained superuser token
+  email?: string;     // superuser identity, used with password
+  password?: string;
+}
+
+async function fromURL(
+  url: string,
+  auth: RemoteAuth,
+  opts?: { includeSystem?: boolean },
+): Promise<Collection[]>
+```
+
+Lists `/api/collections` from a running instance, paginating at `perPage=200` until `totalPages` is
+exhausted. Uses the global `fetch`.
+
+Auth resolution: `auth.token` is used as-is if present; otherwise `email` + `password` are exchanged
+for a token; otherwise it throws. Token exchange posts to
+`/api/collections/_superusers/auth-with-password` (PB v0.23+), falling back to the legacy
+`/api/admins/auth-with-password` only if the modern endpoint fails.
+
+---
+
+## Normalization
+
+### `normalizeCollection`
+
+```ts
+function normalizeCollection(raw: RawCollection): Collection
+```
+
+Converts one raw PocketBase collection into the internal model. Reads the v0.23+ `fields` array,
+falling back to the legacy `schema` array, and flattens each field's type-specific options (the
+pre-0.23 nested `options: {}` object is consulted as a per-property fallback).
+
+### `normalizeCollections`
+
+```ts
+function normalizeCollections(
+  raw: RawCollection[],
+  opts?: { includeSystem?: boolean },   // default false
+): Collection[]
+```
+
+Maps `normalizeCollection` over the array, skips entries without a string `name`, and — unless
+`includeSystem` is true — drops any collection with `system: true` or a name starting with `_`.
+
+---
+
+## Generation
+
+### `generate`
+
+```ts
+function generate(
+  collections: Collection[],
+  options?: GenerateOptions,
+): EmitFile[]
+```
+
+**Synchronous and pure** — no I/O. Collections are sorted by name before emission, so output is
+deterministic regardless of input order.
+
+Returns one file in the default mode and `2 + collections.length` files in split mode.
+
+### `GenerateOptions`
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `zod` | `3 \| 4` | `4` | Target Zod major. Selects `z.email()` vs `z.string().email()`, and the `z.record` arity. |
+| `validators` | `boolean` | `true` | Emit `.min/.max/.regex/.int` from PocketBase constraints. `false` gives bare types. |
+| `split` | `boolean` | `false` | One module per collection instead of a single file. |
+| `expand` | `boolean` | `true` | Typed per-relation `expand` keys. **Zod 4 only.** |
+| `backRelations` | `boolean` | `true` | Include reverse `{collection}_via_{field}` expand keys. |
+
+`expand` is silently ignored under Zod 3 — the emitter computes
+`useExpand = (options.expand ?? true) && zod === 4`, so `{ zod: 3, expand: true }` still emits the
+generic `z.record(...)` envelope. `backRelations` only has an effect when `useExpand` is true.
+
+### `EmitFile`
+
+```ts
+interface EmitFile {
+  name: string;
+  content: string;
 }
 ```
 
-### `PocketBaseCollection`
+In single-file mode the array holds one entry named `pocketbase-zod.ts` (the name is advisory — the
+CLI writes to `--out` regardless). In split mode the names are `_shared.ts`, one `<collection>.ts`
+per collection, and `index.ts`.
 
-**Location**: `src/types.ts`
+---
 
-Represents a PocketBase collection schema.
+## Orchestration
 
-```typescript
-interface PocketBaseCollection {
-  id: string;
-  name: string;
-  type: 'base' | 'auth' | 'view';
-  fields: PocketBaseField[];
-  listRule?: string | null;
-  viewRule?: string | null;
-  createRule?: string | null;
-  updateRule?: string | null;
-  deleteRule?: string | null;
+### `RunOptions`
+
+```ts
+interface RunOptions extends GenerateOptions {
+  db?: string;
+  json?: string;
+  url?: string;
+  email?: string;
+  password?: string;
+  token?: string;
+  env?: boolean | string;      // true, or a path to the .env file
+  includeSystem?: boolean;     // default false
+  out?: string;                // file (single) or directory (split)
 }
 ```
 
-### `PocketBaseField`
+### `collectFromSource`
 
-**Location**: `src/types.ts`
+```ts
+async function collectFromSource(options: RunOptions): Promise<Collection[]>
+```
 
-Represents a field within a PocketBase collection.
+Picks a source by **first match wins**, in this order:
 
-```typescript
-interface PocketBaseField {
-  id: string;
+1. `db` → `fromDatabase`
+2. `json` → `fromJSON`
+3. `url` → `fromURL` with `{ token, email, password }`
+4. `env` → resolve config from the environment, then `fromURL`
+
+If none are set it throws `No schema source provided. …`. If `env` is used without a resolvable
+`PB_TYPEGEN_URL` it throws `Missing PB_TYPEGEN_URL …`.
+
+Environment resolution reads `PB_TYPEGEN_URL`, `PB_TYPEGEN_EMAIL`, `PB_TYPEGEN_PASSWORD`, and
+`PB_TYPEGEN_TOKEN`. Values come from a `.env` file (the path given to `env`, else `./.env`) layered
+**under** `process.env` — a real environment variable always wins over the file. A missing or
+unreadable `.env` file is not an error.
+
+### `generateFiles`
+
+```ts
+async function generateFiles(options: RunOptions): Promise<EmitFile[]>
+```
+
+`collectFromSource` + `generate`. Returns the file contents without touching the filesystem.
+
+### `run`
+
+```ts
+interface RunResult {
+  collections: number;   // how many collections were emitted
+  files: string[];       // paths actually written
+}
+
+async function run(options: RunOptions): Promise<RunResult>
+```
+
+`collectFromSource` + `generate` + write. In single mode `out` is a file path and its parent
+directory is created as needed; in split mode `out` is a directory that receives every emitted file.
+`out` defaults to `DEFAULT_OUT` (`"pocketbase-zod.ts"`) or, when `split` is set, `DEFAULT_OUT_DIR`
+(`"pocketbase-zod"`).
+
+---
+
+## Model types
+
+### `Collection`
+
+```ts
+type CollectionType = "base" | "auth" | "view";
+
+interface Collection {
+  id: string;              // "" when the source omits it
   name: string;
-  type: string;
+  type: CollectionType;    // anything unrecognized normalizes to "base"
+  system: boolean;
+  fields: Field[];
+  indexes: string[];       // raw `CREATE INDEX` / `CREATE UNIQUE INDEX` SQL strings
+}
+```
+
+`indexes` is kept as raw SQL because back-relation cardinality depends on it: a back-relation is
+emitted as a single object (not an array) when the source relation field carries a single-column
+`CREATE UNIQUE INDEX`.
+
+### `Field`
+
+```ts
+type FieldType =
+  | "text" | "editor" | "number" | "bool" | "email" | "url"
+  | "date" | "autodate" | "select" | "relation" | "file"
+  | "json" | "geoPoint" | "password"
+  | "user";   // legacy
+
+interface Field {
+  id?: string;
+  name: string;
+  type: FieldType | (string & {});
   required: boolean;
   system: boolean;
   hidden: boolean;
-  presentable: boolean;
+  presentable?: boolean;
   primaryKey?: boolean;
-  values?: string[];        // For select fields
-  maxSelect?: number;       // For multi-select fields
-  min?: number;            // For validation
-  max?: number;            // For validation
-  pattern?: string;        // For validation
+  min?: number | string;
+  max?: number | string;
+  pattern?: string;
+  onlyInt?: boolean;
+  maxSelect?: number;
+  minSelect?: number;
+  values?: string[];
+  collectionId?: string;
   autogeneratePattern?: string;
-  options?: {
-    values?: string[];
-    maxSelect?: number;
-    [key: string]: any;
-  };
+  onlyDomains?: string[];
+  exceptDomains?: string[];
 }
 ```
 
-## Schema Fetchers
+Notes that matter when consuming the model:
 
-### `fromDatabase(dbPath: string): Promise<PocketBaseCollection[]>`
+- `type` is widened with `(string & {})` — an unknown PocketBase field type survives normalization
+  and maps to `z.unknown()` rather than throwing.
+- `min` / `max` are `number | string` (date bounds arrive as strings) and must be coerced.
+  **A `0` is not uniformly a bound**: PocketBase stores text/id length limits as Go `int`, so `0`
+  means *unbounded*; number limits are nullable pointers, so `0` there is a real bound.
+- `maxSelect` drives cardinality for `select` / `relation` / `file`: absent or `1` → scalar,
+  `> 1` → array.
+- `minSelect` exists on **relation fields only**.
+- `values` is the `select` option list (may contain duplicates; de-duplicate before emitting).
+- `collectionId` on a relation points at the target collection's `id`.
+- `autogeneratePattern` on a text field means the server fills it, so it is optional on create.
+- `system` fields belong on the Response schema only; `hidden` fields are excluded from both Record
+  and Response, since the API never serializes them.
+- `onlyDomains` and `exceptDomains` are mutually exclusive in practice.
 
-**Location**: `src/schema-fetchers.ts`
+### Raw types
 
-Reads schema directly from PocketBase SQLite database.
+`RawCollection` and `RawField` mirror what the PB API and the `_collections` table actually contain
+— both the modern (`fields`, flattened options) and legacy (`schema`, nested `options`) shapes, with
+an index signature for forward compatibility. Use them when hand-building input for
+`normalizeCollections`.
 
-**Parameters**:
-- `dbPath: string` - Path to the SQLite database file
+---
 
-**Returns**:
-- `Promise<PocketBaseCollection[]>` - Array of collection schemas
+## Examples
 
-**Example**:
-```typescript
-import { fromDatabase } from 'pocketbase-zod-generator';
+### Generate to a string
 
-const collections = await fromDatabase('./pb_data/data.db');
+```ts
+import { fromDatabase, generate } from "pb-ts-zod";
+
+const collections = fromDatabase("./pb_data/data.db"); // sync
+const [file] = generate(collections, { zod: 4 });
+console.log(file!.content);
 ```
 
-### `fromJSON(path: string): Promise<PocketBaseCollection[]>`
+### Transform collections before generating
 
-**Location**: `src/schema-fetchers.ts`
+```ts
+import { fromJSON, generate } from "pb-ts-zod";
 
-Loads schema from JSON file exported from PocketBase admin UI.
+const collections = await fromJSON("./pb_schema.json");
 
-**Parameters**:
-- `path: string` - Path to JSON schema file
+// Emit only base collections, and drop a field you never want typed.
+const trimmed = collections
+  .filter((c) => c.type === "base")
+  .map((c) => ({ ...c, fields: c.fields.filter((f) => f.name !== "internal_notes") }));
 
-**Returns**:
-- `Promise<PocketBaseCollection[]>` - Array of collection schemas
-
-### `fromURLWithToken(url: string, token: string): Promise<PocketBaseCollection[]>`
-
-**Location**: `src/schema-fetchers.ts`
-
-Fetches schema from PocketBase API using authentication token.
-
-**Parameters**:
-- `url: string` - PocketBase instance URL
-- `token: string` - Authentication token
-
-**Returns**:
-- `Promise<PocketBaseCollection[]>` - Array of collection schemas
-
-### `fromURLWithPassword(url: string, email: string, password: string): Promise<PocketBaseCollection[]>`
-
-**Location**: `src/schema-fetchers.ts`
-
-Fetches schema from PocketBase API using email/password authentication.
-
-**Parameters**:
-- `url: string` - PocketBase instance URL
-- `email: string` - Admin email
-- `password: string` - Admin password
-
-**Returns**:
-- `Promise<PocketBaseCollection[]>` - Array of collection schemas
-
-## Generator Functions
-
-### `generate(results: PocketBaseCollection[]): string`
-
-**Location**: `src/generator.ts`
-
-Main generation function that converts PocketBase collections to TypeScript code.
-
-**Parameters**:
-- `results: PocketBaseCollection[]` - Array of collection schemas
-
-**Returns**:
-- `string` - Generated TypeScript code
-
-### `createCollectionSchema(collectionSchemaEntry: PocketBaseCollection): string`
-
-**Location**: `src/generator.ts`
-
-Creates Zod schema and TypeScript types for a single collection.
-
-**Parameters**:
-- `collectionSchemaEntry: PocketBaseCollection` - Collection schema
-
-**Returns**:
-- `string` - Generated code for the collection
-
-**Generated Output**:
-- Select option constants (if applicable)
-- Record schema (for input data)
-- Response schema (with system fields)
-- TypeScript types (inferred from Zod schemas)
-
-## Field Processing
-
-### `createZodField(collectionName: string, fieldSchema: PocketBaseField): string`
-
-**Location**: `src/fields.ts`
-
-Generates Zod schema string for a single field.
-
-**Parameters**:
-- `collectionName: string` - Name of the parent collection
-- `fieldSchema: PocketBaseField` - Field schema definition
-
-**Returns**:
-- `string` - Zod field definition
-
-### `createSelectOptions(recordName: string, fields: PocketBaseField[]): string`
-
-**Location**: `src/fields.ts`
-
-Creates TypeScript const assertions for select field options.
-
-**Parameters**:
-- `recordName: string` - Collection name
-- `fields: PocketBaseField[]` - Array of collection fields
-
-**Returns**:
-- `string` - TypeScript const definitions for select options
-
-**Example Output**:
-```typescript
-export const UsersRoleOptions = ["admin","editor","viewer"] as const;
-export const PostsStatusOptions = ["draft","published","archived"] as const;
+const [file] = generate(trimmed, { zod: 4, validators: true });
 ```
 
-## Utility Functions
+### Split mode
 
-### `toPascalCase(str: string): string`
+```ts
+import { fromDatabase, generate } from "pb-ts-zod";
 
-**Location**: `src/utils.ts`
-
-Converts strings to PascalCase with Unicode support.
-
-**Parameters**:
-- `str: string` - Input string
-
-**Returns**:
-- `string` - PascalCase string
-
-### `sanitizeFieldName(name: string): string`
-
-**Location**: `src/utils.ts`
-
-Sanitizes field names for TypeScript compatibility.
-
-**Parameters**:
-- `name: string` - Field name
-
-**Returns**:
-- `string` - Sanitized field name (quoted if necessary)
-
-### `saveFile(outPath: string, typeString: string): Promise<void>`
-
-**Location**: `src/utils.ts`
-
-Writes generated code to file system.
-
-**Parameters**:
-- `outPath: string` - Output file path
-- `typeString: string` - Generated TypeScript code
-
-**Returns**:
-- `Promise<void>`
-
-### `getSystemFieldsSchema(type: string): string`
-
-**Location**: `src/utils.ts`
-
-Returns appropriate system fields schema name based on collection type.
-
-**Parameters**:
-- `type: string` - Collection type ('auth' or other)
-
-**Returns**:
-- `string` - Schema name ('AuthSystemFieldsSchema' or 'BaseSystemFieldsSchema')
-
-### `getOptionEnumName(recordName: string, fieldName: string): string`
-
-**Location**: `src/utils.ts`
-
-Generates enum name for select field options.
-
-**Parameters**:
-- `recordName: string` - Collection name
-- `fieldName: string` - Field name
-
-**Returns**:
-- `string` - Enum name (e.g., 'UsersRoleOptions')
-
-### `getOptionValues(field: PocketBaseField): string[]`
-
-**Location**: `src/utils.ts`
-
-Extracts and deduplicates option values from select fields.
-
-**Parameters**:
-- `field: PocketBaseField` - Field schema
-
-**Returns**:
-- `string[]` - Array of unique option values
-
-## Collection Utilities
-
-### `createCollectionEnum(collectionNames: string[]): string`
-
-**Location**: `src/collections.ts`
-
-Creates TypeScript enum for collection names.
-
-**Parameters**:
-- `collectionNames: string[]` - Array of collection names
-
-**Returns**:
-- `string` - TypeScript enum definition
-
-**Example Output**:
-```typescript
-export enum Collections {
-  Users = "users",
-  Posts = "posts",
-  Comments = "comments",
-}
+const files = generate(fromDatabase("./pb_data/data.db"), { split: true });
+for (const f of files) console.log(f.name); // _shared.ts, posts.ts, users.ts, …, index.ts
 ```
 
-## Field Type Mapping
+### From a live instance
 
-### `pbSchemaZodMap: FieldTypeMap`
+```ts
+import { fromURL, generate } from "pb-ts-zod";
 
-**Location**: `src/fields.ts`
+const collections = await fromURL("http://127.0.0.1:8090", {
+  email: "admin@example.com",
+  password: "secret",
+});
+const [file] = generate(collections, { zod: 4, backRelations: false });
+```
 
-Maps PocketBase field types to Zod schema generators.
+### End-to-end, writing to disk
 
-**Supported Types**:
-- `text` → `z.string()`
-- `number` → `z.number()`
-- `bool` → `z.boolean()`
-- `email` → `z.string().email()`
-- `url` → `z.string().url()`
-- `date` → `IsoDateString`
-- `select` → `z.enum()` or `z.array(z.enum())`
-- `json` → `z.any()`
-- `file` → `z.string()` or `z.array(z.string())`
-- `relation` → `RecordIdString` or `z.array(RecordIdString)`
-- `editor` → `HTMLString`
+```ts
+import { run } from "pb-ts-zod";
 
-## Error Handling
-
-### Authentication Errors
-- Invalid credentials result in `process.exit(1)`
-- Missing environment variables show helpful error messages
-
-### Schema Processing Errors
-- Unknown field types fall back to `z.any()` with console warning
-- Missing configuration shows usage help
-
-### File System Errors
-- File write errors propagate as Promise rejections
-- Invalid paths handled by Node.js fs module
-
-## Environment Variables
-
-### Required Variables
-- `PB_TYPEGEN_URL` - PocketBase instance URL
-
-### Authentication Options
-**Option 1**: Token-based
-- `PB_TYPEGEN_TOKEN` - Authentication token
-
-**Option 2**: Email/password
-- `PB_TYPEGEN_EMAIL` - Admin email
-- `PB_TYPEGEN_PASSWORD` - Admin password
-
-### Example .env File
-```env
-PB_TYPEGEN_URL=http://127.0.0.1:8090
-PB_TYPEGEN_EMAIL=admin@example.com
-PB_TYPEGEN_PASSWORD=your-password
+const { collections, files } = await run({
+  db: "./pb_data/data.db",
+  out: "src/pocketbase-zod.ts",
+  zod: 4,
+});
+console.log(`${collections} collections → ${files.join(", ")}`);
 ```

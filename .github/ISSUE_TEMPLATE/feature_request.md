@@ -28,18 +28,19 @@ Provide details about the implementation you envision.
 ### CLI Example
 ```bash
 # How you'd like to use the feature via CLI
-pocketbase-zod-generator --new-feature-flag value
+npx pb-ts-zod --db ./pb_data/data.db --new-feature-flag value
 ```
 
 ### Programmatic Example
 ```typescript
 // How you'd like to use the feature programmatically
-import { generateZodSchemas } from 'pocketbase-zod-generator';
+import { fromDatabase, generate } from "pb-ts-zod";
 
-const schemas = await generateZodSchemas({
+const collections = fromDatabase("./pb_data/data.db");
+const [file] = generate(collections, {
+  zod: 4,
   // new feature configuration
   newFeature: true,
-  newFeatureOptions: { ... }
 });
 ```
 

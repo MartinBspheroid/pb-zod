@@ -13,19 +13,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Node >= 22.5 is required: the SQLite reader uses the built-in node:sqlite.
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
+      - name: Check (typecheck + lint + unit tests)
+        run: npm run check
+
       - name: Build
         run: npm run build
 
-      - name: Test CLI
+      - name: Smoke test the CLI
         run: |
-          node dist/cli.js --version
-          node dist/cli.js --help
+          node dist/cli.mjs --version
+          node dist/cli.mjs --help
+          node dist/cli.mjs --json test/fixtures/pb_schema.json --out "$RUNNER_TEMP/generated.ts"
+          test -s "$RUNNER_TEMP/generated.ts"

@@ -1,130 +1,81 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
-## Project Overview
+## Project
 
-**pocketbase-zod-generator** is a TypeScript CLI tool that generates Zod schemas from PocketBase collections with proper select field enum support. It provides type-safe validation and TypeScript types for PocketBase applications.
+**pb-ts-zod** — a CLI + library that generates Zod schemas and TypeScript types from PocketBase
+collections. Reads offline from a SQLite file (`node:sqlite`) or a `pb_schema.json` export, or live
+from a running instance. Zod 4 by default, Zod 3 via `--zod 3`.
 
-## Development Commands
+Formerly published as `pocketbase-zod-generator`; rewritten for v1.0.
 
-```bash
-# Build the project (compiles TypeScript to dist/)
-npm run build
-
-# Development mode (run CLI without building)
-npm run dev
-
-# Test the CLI locally with tsx
-tsx src/cli.ts --help
-
-# Clean build artifacts
-npm run clean
-
-# Prepare for publishing (clean + build)
-npm run prepublishOnly
-```
-
-**Note**: The project currently has placeholder commands for `npm run test`, `npm run lint`, and `npm run format` that don't perform actual operations yet.
-
-## Project Architecture
-
-### Core Data Flow
-The tool follows a multi-source data collection → schema generation → file output pattern:
-
-1. **Schema Collection** (`src/schema-fetchers.ts`): Multiple strategies to fetch PocketBase collection schemas:
-   - `fromURLWithPassword`: API connection with admin credentials  
-   - `fromURLWithToken`: API connection with auth token
-   - `fromDatabase`: Direct SQLite database reading
-   - `fromJSON`: JSON file import
-   - Environment variable support via `dotenv-flow`
-
-2. **Generation Pipeline** (`src/generator.ts`): 
-   - `generate()`: Main orchestration function
-   - `createCollectionSchema()`: Per-collection schema generation
-   - Produces enum constants, record schemas, response schemas, and TypeScript types
-
-3. **Field Mapping** (`src/fields.ts`): Converts PocketBase field types to Zod schema definitions with proper type safety
-
-### Key Architecture Files
-- `src/main.ts` - Primary API entry point and orchestration
-- `src/generator.ts` - Core generation logic and template assembly  
-- `src/schema-fetchers.ts` - Data source abstraction strategies
-- `src/fields.ts` - PocketBase to Zod field type mapping
-- `src/types.ts` - TypeScript interfaces for the entire system
-- `src/constants.ts` - Code generation templates and system field definitions
-- `src/utils.ts` - File operations and utility functions
-- `src/cli.ts` - Command-line interface implementation
-
-### Generated Output Structure
-Each collection produces:
-1. Select field enum constants (e.g., `UsersRoleOptions`)
-2. Record schema for input validation (`UsersRecordSchema`) 
-3. Response schema with system fields (`UsersResponseSchema`)
-4. Inferred TypeScript types (`UsersRecord`, `UsersResponse`)
-
-### System Field Handling
-Collections are categorized as `base`, `auth`, or `view` types, each receiving appropriate system fields (id, created, updated, etc.) merged from predefined schemas in `src/constants.ts`.
-
-## Environment Setup
-
-Create `.env` file for development:
-```env
-PB_TYPEGEN_URL=http://127.0.0.1:8090
-PB_TYPEGEN_EMAIL=admin@example.com
-PB_TYPEGEN_PASSWORD=your-password
-# OR use token instead
-PB_TYPEGEN_TOKEN=your-auth-token
-```
-
-## Common Development Tasks
-
-### Adding New Field Types
-1. Add type mapping in `src/fields.ts` → `pbSchemaZodMap` function
-2. Add any new constants to `src/constants.ts` 
-3. Test with PocketBase collections containing the new field type
-
-### Adding New Schema Sources  
-1. Create new fetcher function in `src/schema-fetchers.ts`
-2. Add to main orchestration logic in `src/main.ts` → `generateZodSchemas()`
-3. Add CLI option in `src/cli.ts` using `commander` package
-
-### Modifying Generated Output
-1. Update string templates in `src/constants.ts`
-2. Modify generation logic in `src/generator.ts` → `createCollectionSchema()`
-3. Test output with various PocketBase schema configurations
-
-## Testing Approach
-
-Manual testing process (no automated test suite yet):
-1. Set up local PocketBase instance with test data
-2. Create collections with various field types (text, select, relation, etc.)
-3. Run generator: `tsx src/cli.ts --env --out test-output.ts`
-4. Verify generated schemas compile and validate correctly
-
-## TypeScript Configuration
-
-- Uses ES modules (`"type": "module"` in package.json)
-- Two TypeScript configs:
-  - `tsconfig.json`: Development with bundler module resolution
-  - `tsconfig.build.json`: Production build with Node module resolution
-- Build outputs to `dist/` with declaration files
-
-## Dependencies
-
-- **CLI**: `commander` for argument parsing
-- **HTTP**: `cross-fetch` for API requests  
-- **Database**: `sqlite3` + `sqlite` wrapper for direct DB access
-- **Environment**: `dotenv-flow` for .env file support
-- **Forms**: `form-data` for authentication requests
-- **Peer**: `zod` (required by generated schemas)
-
-## Build and Publishing
+## Commands
 
 ```bash
-# Clean build
-npm run clean && npm run build
-
-# Publish to npm (runs prepublishOnly hook)
-npm publish
+npm run build       # tsdown -> dist/*.mjs (+ .d.mts)
+npm run dev         # tsx src/cli.ts
+npm run typecheck   # tsc --noEmit (TypeScript 7 native)
+npm run test        # vitest run  (unit tests)
+npm run lint        # biome check .
+npm run check       # typecheck + lint + test  (the unit CI gate)
+npm run test:e2e    # build + bun test test-e2e/  (real PocketBase round-trip)
 ```
+
+Node ≥ 22.5 is required (`node:sqlite`). The e2e suite additionally needs Bun and network access
+(first run downloads a PocketBase binary into `test-e2e/.pb-cache/`).
+
+## Architecture (`src/`)
+
+- `types.ts` — internal `Collection`/`Field` model + raw PB shapes.
+- `normalize.ts` — raw PB → internal model. Handles v0.23+ `fields`/flattened options **and** the
+  legacy `schema`/nested `options` fallback; drops system collections by default.
+- `dialect.ts` — the Zod v3 vs v4 surface differences (`z.email()` vs `z.string().email()`, etc.).
+- `mapping.ts` — one field → a Zod expression, with validators, single/multi arrays, empty-sentinel
+  unions, and optional/nullable handling. **The core logic.**
+- `emit.ts` — assembles the output file(s): aliases, `Collections` enum, select option consts,
+  Record/Response schemas, registries. Single-file or `--split`.
+- `fetchers/` — `sqlite.ts` (`node:sqlite`), `json.ts`, `remote.ts` (global `fetch`, `_superusers`
+  auth). Each returns a normalized `Collection[]`.
+- `run.ts` — source selection + write orchestration. `io.ts` — env/.env parsing + file writing.
+- `cli.ts` — commander CLI. `index.ts` — public API.
+
+## Correctness invariants (don't regress these)
+
+- **Dates**: `IsoDateString` must accept PB's space-separated datetimes (`2022-01-01 10:00:00.123Z`)
+  and `""` — not `z.iso.datetime()`, which rejects both.
+- **Empty sentinel**: optional `email`/`url`/single-`select` need `.or(z.literal(""))`.
+- **System fields** come from the schema (`system: true`) and belong on the Response schema only;
+  **all `hidden` fields are excluded** from both Record and Response (never serialized).
+- **Text min/max of `0` = unbounded** (Go int zero value) — never emit `.length(0)`/`.min(0)` for
+  text/id. (Number min/max are nullable pointers, so `0` there is a real bound.)
+- **`minSelect` only applies to a *required* relation.** PB enforces it only when the field has a
+  value; an optional relation may be empty and the API returns `[]`. Emitting `.min(n)` there makes
+  the schema reject real responses.
+- **Typed `expand`** uses Zod 4 **getters** (`get expand() { return z.object({…}).optional() }`) —
+  the only idiom that typechecks recursively (verified; `z.lazy` fails). Keep `.extend()` (not the
+  spread form, which evaluates the getter eagerly). Zod-4-only; `--zod 3`/`--no-expand` → generic
+  `z.record`. Back-relation is a single object iff a single-column `CREATE UNIQUE INDEX` exists.
+- **Auth**: superuser auth is the `_superusers` collection endpoint (v0.23+); `/api/admins/...` is a
+  legacy fallback only.
+- **Build**: `node:sqlite` must stay a `node:`-prefixed external in `dist` (tsdown handles this;
+  esbuild-based bundlers strip the prefix and break it).
+
+## Tests
+
+**Unit** (`test/`, Vitest, Node): `test/fixtures/pb_schema.json` covers every field type across
+base/auth/view collections. `test/generated.test.ts` compiles the emitted Zod 4 source with esbuild
+and executes it against sample records.
+
+**E2E** (`test-e2e/`, Bun): spins up a real PocketBase (`helpers/server.ts` — downloads + caches the
+binary, superuser upsert, serve, health wait), pushes a comprehensive schema + seed data
+(`fixtures/schema.ts`), generates from all three sources, and validates the generated Zod against
+live API responses. Bun-only (not in tsconfig/Biome scope); imports the generated `.ts` natively.
+Gotcha: PB's `--migrationsDir` is pinned inside the ephemeral data dir so auto-migrations don't leak
+across runs.
+
+## Adding a field type
+
+1. Extend `FieldType` in `types.ts`.
+2. Add a case in `baseExpr` (`mapping.ts`).
+3. Add a field to the fixture and assertions in `mapping.test.ts` / `generated.test.ts`.

@@ -1,0 +1,68 @@
+[
+  {
+    "id": "posts000000001",
+    "name": "posts",
+    "type": "base",
+    "system": false,
+    "fields": [
+      { "id": "f_id", "name": "id", "type": "text", "system": true, "required": true, "hidden": false, "primaryKey": true, "min": 15, "max": 15, "pattern": "^[a-z0-9]+$" },
+      { "id": "f_title", "name": "title", "type": "text", "system": false, "required": true, "hidden": false, "min": 3, "max": 120 },
+      { "id": "f_slug", "name": "slug", "type": "text", "system": false, "required": true, "hidden": false, "pattern": "^[a-z0-9-]+$" },
+      { "id": "f_body", "name": "body", "type": "editor", "system": false, "required": false, "hidden": false },
+      { "id": "f_views", "name": "views", "type": "number", "system": false, "required": false, "hidden": false, "onlyInt": true, "min": 0 },
+      { "id": "f_rating", "name": "rating", "type": "number", "system": false, "required": false, "hidden": false, "min": 0, "max": 5 },
+      { "id": "f_published", "name": "published", "type": "bool", "system": false, "required": false, "hidden": false },
+      { "id": "f_status", "name": "status", "type": "select", "system": false, "required": true, "hidden": false, "maxSelect": 1, "values": ["draft", "published", "archived"] },
+      { "id": "f_tags", "name": "tags", "type": "select", "system": false, "required": false, "hidden": false, "maxSelect": 5, "values": ["tech", "life", "news", "misc"] },
+      { "id": "f_author", "name": "author", "type": "relation", "system": false, "required": true, "hidden": false, "maxSelect": 1, "collectionId": "users000000001" },
+      { "id": "f_editors", "name": "editors", "type": "relation", "system": false, "required": false, "hidden": false, "maxSelect": 10, "collectionId": "users000000001" },
+      { "id": "f_cover", "name": "cover", "type": "file", "system": false, "required": false, "hidden": false, "maxSelect": 1 },
+      { "id": "f_attachments", "name": "attachments", "type": "file", "system": false, "required": false, "hidden": false, "maxSelect": 20 },
+      { "id": "f_homepage", "name": "homepage", "type": "url", "system": false, "required": false, "hidden": false },
+      { "id": "f_contact", "name": "contact", "type": "email", "system": false, "required": false, "hidden": false },
+      { "id": "f_publish_at", "name": "publish_at", "type": "date", "system": false, "required": false, "hidden": false },
+      { "id": "f_metadata", "name": "metadata", "type": "json", "system": false, "required": false, "hidden": false },
+      { "id": "f_location", "name": "location", "type": "geoPoint", "system": false, "required": false, "hidden": false },
+      { "id": "f_created", "name": "created", "type": "autodate", "system": true, "required": false, "hidden": false, "onCreate": true, "onUpdate": false },
+      { "id": "f_updated", "name": "updated", "type": "autodate", "system": true, "required": false, "hidden": false, "onCreate": true, "onUpdate": true }
+    ]
+  },
+  {
+    "id": "users000000001",
+    "name": "users",
+    "type": "auth",
+    "system": false,
+    "fields": [
+      { "id": "u_id", "name": "id", "type": "text", "system": true, "required": true, "hidden": false, "primaryKey": true, "min": 15, "max": 15, "pattern": "^[a-z0-9]+$" },
+      { "id": "u_name", "name": "name", "type": "text", "system": false, "required": false, "hidden": false, "max": 80 },
+      { "id": "u_avatar", "name": "avatar", "type": "file", "system": false, "required": false, "hidden": false, "maxSelect": 1 },
+      { "id": "u_email", "name": "email", "type": "email", "system": true, "required": true, "hidden": false },
+      { "id": "u_emailVisibility", "name": "emailVisibility", "type": "bool", "system": true, "required": false, "hidden": false },
+      { "id": "u_verified", "name": "verified", "type": "bool", "system": true, "required": false, "hidden": false },
+      { "id": "u_tokenKey", "name": "tokenKey", "type": "text", "system": true, "required": true, "hidden": true },
+      { "id": "u_password", "name": "password", "type": "password", "system": true, "required": true, "hidden": true },
+      { "id": "u_created", "name": "created", "type": "autodate", "system": true, "required": false, "hidden": false, "onCreate": true, "onUpdate": false },
+      { "id": "u_updated", "name": "updated", "type": "autodate", "system": true, "required": false, "hidden": false, "onCreate": true, "onUpdate": true }
+    ]
+  },
+  {
+    "id": "stats0000000001",
+    "name": "post_stats",
+    "type": "view",
+    "system": false,
+    "fields": [
+      { "id": "s_id", "name": "id", "type": "text", "system": true, "required": true, "hidden": false, "primaryKey": true },
+      { "id": "s_post", "name": "post", "type": "relation", "system": false, "required": false, "hidden": false, "maxSelect": 1, "collectionId": "posts000000001" },
+      { "id": "s_total", "name": "total", "type": "number", "system": false, "required": false, "hidden": false }
+    ]
+  },
+  {
+    "id": "_pb_superuser_",
+    "name": "_superusers",
+    "type": "auth",
+    "system": true,
+    "fields": [
+      { "id": "su_id", "name": "id", "type": "text", "system": true, "required": true, "hidden": false, "primaryKey": true }
+    ]
+  }
+]
