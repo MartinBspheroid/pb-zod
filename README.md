@@ -1,3 +1,5 @@
+![pb-ts-zod — PocketBase to TypeScript to Zod](docs/assets/pb-ts-zod-hero.avif)
+
 # pb-ts-zod
 
 Generate **Zod schemas + TypeScript types** from your **PocketBase** collections — offline from a
