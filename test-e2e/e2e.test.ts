@@ -226,6 +226,16 @@ describe("generated Zod validates the real API responses", () => {
     expect(team.members.length).toBeGreaterThanOrEqual(2);
     expect(mod.TeamsResponseSchema.safeParse(team).success).toBe(true);
   });
+
+  test("an optional minSelect relation left empty still validates", () => {
+    const team = live.teams[0];
+    // PocketBase returns `[]`, not `undefined`, for an unset optional relation.
+    expect(team.reviewers).toEqual([]);
+    const parsed = mod.TeamsResponseSchema.safeParse(team);
+    expect(parsed.success).toBe(true);
+    // the required counterpart keeps its floor
+    expect(mod.TeamsResponseSchema.safeParse({ ...team, members: [] }).success).toBe(false);
+  });
 });
 
 describe("generated Zod validates typed `expand` payloads", () => {

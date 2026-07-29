@@ -49,6 +49,9 @@ Node ≥ 22.5 is required (`node:sqlite`). The e2e suite additionally needs Bun 
   **all `hidden` fields are excluded** from both Record and Response (never serialized).
 - **Text min/max of `0` = unbounded** (Go int zero value) — never emit `.length(0)`/`.min(0)` for
   text/id. (Number min/max are nullable pointers, so `0` there is a real bound.)
+- **`minSelect` only applies to a *required* relation.** PB enforces it only when the field has a
+  value; an optional relation may be empty and the API returns `[]`. Emitting `.min(n)` there makes
+  the schema reject real responses.
 - **Typed `expand`** uses Zod 4 **getters** (`get expand() { return z.object({…}).optional() }`) —
   the only idiom that typechecks recursively (verified; `z.lazy` fails). Keep `.extend()` (not the
   spread form, which evaluates the getter eagerly). Zod-4-only; `--zod 3`/`--no-expand` → generic

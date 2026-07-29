@@ -98,12 +98,15 @@ export async function defineSchema(pb: PbClient) {
   });
 
   // minSelect relation: a team must have 2..5 members.
+  // `reviewers` is the *optional* counterpart — PocketBase lets it stay empty
+  // and returns `[]`, so the generated schema must not carry a `.min()` floor.
   const teams = await pb.createCollection({
     name: "teams",
     type: "base",
     fields: [
       { name: "name", type: "text", required: true, min: 1 },
       { name: "members", type: "relation", required: true, maxSelect: 5, minSelect: 2, collectionId: authors.id, cascadeDelete: false },
+      { name: "reviewers", type: "relation", required: false, maxSelect: 5, minSelect: 2, collectionId: authors.id, cascadeDelete: false },
       autodate("created", false),
     ],
   });
@@ -251,7 +254,8 @@ export async function seedData(pb: PbClient) {
     metadata: [1, 2, 3],
   });
 
-  // team with 2 members (satisfies minSelect: 2)
+  // team with 2 members (satisfies minSelect: 2) and NO reviewers — the optional
+  // minSelect relation comes back as `[]`, which the generated schema must accept.
   await pb.createRecord("teams", { name: "Core", members: [alice.id, bob.id] });
 
   // one profile per author (unique author index)

@@ -156,8 +156,11 @@ function baseExpr(field: Field, ctx: MapContext): string {
 function arrayOf(inner: string, field: Field, ctx: MapContext): string {
   let expr = `z.array(${inner})`;
   if (ctx.validators) {
-    // minSelect exists only on relation fields.
-    if (field.type === "relation" && field.minSelect && field.minSelect > 0) {
+    // minSelect exists only on relation fields, and PocketBase enforces it only
+    // when the field actually has a value: an *optional* relation may be left
+    // empty and the API then returns `[]`. Emitting `.min()` there would reject
+    // real responses, so the floor applies to required relations only.
+    if (field.type === "relation" && field.required && field.minSelect && field.minSelect > 0) {
       expr += `.min(${field.minSelect})`;
     }
     if (field.maxSelect && field.maxSelect > 1) {

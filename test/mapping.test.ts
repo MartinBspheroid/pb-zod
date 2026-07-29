@@ -47,9 +47,22 @@ describe("zodForField — Zod 4 idioms", () => {
     );
   });
 
-  it("relation minSelect emits .min() on the array", () => {
+  it("relation minSelect emits .min() on a required array", () => {
     const f = field({ name: "editors", type: "relation", maxSelect: 5, minSelect: 2 });
     expect(zodForField(f, ctx4)).toBe("z.array(RecordIdString).min(2).max(5)");
+  });
+
+  it("relation minSelect is dropped on an optional array", () => {
+    // PocketBase lets an optional relation be empty and returns `[]` for it,
+    // so a `.min()` floor would reject a real API response.
+    const f = field({
+      name: "editors",
+      type: "relation",
+      required: false,
+      maxSelect: 5,
+      minSelect: 2,
+    });
+    expect(zodForField(f, ctx4)).toBe("z.array(RecordIdString).max(5).optional()");
   });
 
   it("email onlyDomains emits a domain refine", () => {
