@@ -21,10 +21,10 @@ Fixes # (issue number, if applicable)
 
 ### Test Commands Run
 ```bash
-npm test
+npm run check        # typecheck + lint + unit tests — required
 npm run build
-node dist/cli.js --help
-# Add any other specific test commands you ran
+node dist/cli.mjs --help
+npm run test:e2e     # required for changes to mapping, emission, or the fetchers
 ```
 
 ## 📋 Checklist
@@ -51,8 +51,9 @@ List any related issues here:
 
 ## 📱 Environment Tested
 - **OS**: [e.g. macOS, Ubuntu, Windows]
-- **Node.js**: [e.g. 18.15.0, 20.10.0]
-- **npm**: [e.g. 9.5.0]
+- **Node.js**: [e.g. 22.11.0 — the package requires ≥ 22.5]
+- **npm**: [e.g. 10.9.0]
+- **Zod target**: [4 / 3 / both]
 
 ## 📎 Additional Notes
 Any additional information about this PR:

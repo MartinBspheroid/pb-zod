@@ -23,15 +23,17 @@ A clear and concise description of what actually happened.
 
 ## 📱 Environment
 - **OS**: [e.g. macOS, Windows, Linux]
-- **Node.js version**: [e.g. 18.15.0]
-- **npm version**: [e.g. 9.5.0]
-- **Package version**: [e.g. 0.1.0]
-- **PocketBase version**: [e.g. 0.20.0]
+- **Node.js version**: [e.g. 22.11.0 — must be ≥ 22.5]
+- **npm version**: [e.g. 10.9.0]
+- **pb-ts-zod version**: [e.g. 1.0.0]
+- **PocketBase version**: [e.g. 0.39.9]
+- **Zod version**: [e.g. 4.0.5]
+- **Schema source**: [`--db` / `--json` / `--url` / `--env`]
 
 ## 📋 Command/Configuration
 ```bash
 # The command you ran
-pocketbase-zod-generator --url http://localhost:8090 --email admin@example.com
+npx pb-ts-zod --db ./pb_data/data.db --out src/pocketbase-zod.ts
 ```
 
 ```env

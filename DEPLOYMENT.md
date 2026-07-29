@@ -1,251 +1,176 @@
-# 🚀 Deployment Guide
+# Releasing pb-ts-zod
 
-This document outlines how to deploy and publish the `pocketbase-zod-generator` package.
+How this package is built, versioned, and published to npm.
 
-## 📋 Prerequisites
+Package: [`pb-ts-zod`](https://www.npmjs.com/package/pb-ts-zod) · Repo:
+[`MartinBspheroid/pb-zod`](https://github.com/MartinBspheroid/pb-zod)
 
-Before deploying, ensure you have:
+## What ships
 
-1. **NPM Account**: [Create account](https://www.npmjs.com/signup) if needed
-2. **NPM Access Token**: Generate automation token from [npmjs.com](https://www.npmjs.com/settings/tokens)
-3. **GitHub Repository**: With Actions enabled
-4. **Repository Secrets**: Configure required secrets
+`package.json` `files` controls the published tarball — only these are included:
 
-## 🔐 Required Secrets
-
-Add these secrets to your GitHub repository (Settings → Secrets and variables → Actions):
-
-### `NPM_TOKEN`
-```bash
-# Get this from npmjs.com → Account → Access Tokens
-# Create "Automation" token with "Publish" permission
+```
+dist/**/*      README.md      CHANGELOG.md      LICENSE
 ```
 
-### Repository Permissions
-Ensure the repository has:
-- **Actions**: Read and write permissions
-- **Contents**: Write permissions (for creating releases)
-- **Metadata**: Read permissions
+`npm run build` (tsdown) emits ESM plus declarations:
 
-## 🎯 Deployment Methods
+| Path | Role |
+| --- | --- |
+| `dist/index.mjs` / `dist/index.d.mts` | library entry (`main`, `types`, `exports`) |
+| `dist/cli.mjs` | the `pb-ts-zod` binary |
 
-### Method 1: Automated Release (Recommended)
+The build is ESM-only (`"type": "module"`). `node:sqlite` must stay a `node:`-prefixed external in
+the bundle — tsdown handles this; esbuild-based bundlers strip the prefix and break the CLI at
+runtime. Verify with `grep -c 'node:sqlite' dist/*.mjs` after a build if you change bundler config.
 
-#### Via GitHub Actions UI
-1. Go to your repository → **Actions** tab
-2. Select **"Release"** workflow
-3. Click **"Run workflow"**
-4. Configure options:
-   - **Release type**: `patch` | `minor` | `major`
-   - **Dry run**: `false` (or `true` to test first)
-5. Click **"Run workflow"**
+`prepublishOnly` runs `npm run build`, so a manual `npm publish` cannot ship a stale `dist/`.
 
-#### Via Command Line
+## Prerequisites
+
+1. **npm account** with publish rights on `pb-ts-zod`.
+2. **`NPM_TOKEN`** repository secret — an npm *Automation* token with publish permission
+   (Settings → Secrets and variables → Actions).
+3. **Actions permissions** — Contents: write (for creating GitHub releases).
+
+## Release process
+
+Releases are tag-driven. `.github/workflows/release.yml` triggers on any pushed tag matching `v*`
+and runs:
+
+```
+checkout → setup-node (registry npmjs) → npm ci → npm run build → npm publish → gh release create
+```
+
+The GitHub release is created by `softprops/action-gh-release` with `generate_release_notes: true`.
+
+### Cutting a release
+
 ```bash
-# Use the provided release script
-./scripts/release.sh patch   # 0.1.0 → 0.1.1
-./scripts/release.sh minor   # 0.1.0 → 0.2.0  
-./scripts/release.sh major   # 0.1.0 → 1.0.0
+# 1. Make sure the gate is green and the changelog is updated
+npm run check
+npm run test:e2e            # optional but recommended before a minor/major
 
-# This automatically:
-# 1. Runs tests and builds
-# 2. Updates package.json version
-# 3. Creates git tag
-# 4. Pushes to GitHub
-# 5. Triggers release workflow
+# 2. Bump the version (no tag yet)
+npm version patch --no-git-tag-version   # or minor / major
 
-# Or manually:
-npm version patch --no-git-tag-version
-git add package.json
-git commit -m "chore: bump version to v$(node -p 'require(\"./package.json\").version')"
-git tag "v$(node -p 'require(\"./package.json\").version')"
+# 3. Commit, tag, push
+VERSION=$(node -p "require('./package.json').version")
+git add package.json package-lock.json CHANGELOG.md
+git commit -m "chore: release v$VERSION"
+git tag "v$VERSION"
 git push origin main --follow-tags
 ```
 
-### Method 2: Manual Release
+Pushing the tag is what triggers publication.
+
+### Using the helper script
+
+`scripts/release.sh` wraps the same steps and refuses to run on a non-`main` branch or with a dirty
+working tree:
 
 ```bash
-# 1. Update version
-npm version patch
+./scripts/release.sh patch    # 1.0.0 → 1.0.1
+./scripts/release.sh minor    # 1.0.0 → 1.1.0
+./scripts/release.sh major    # 1.0.0 → 2.0.0
+```
 
-# 2. Build the package
+It pulls `main`, runs `npm test` and `npm run build`, bumps the version, commits, tags, and pushes
+with `--follow-tags`.
+
+### Pre-releases
+
+```bash
+npm version prerelease --preid=beta      # 1.0.0 → 1.0.1-beta.0
+git tag "v$(node -p "require('./package.json').version")"
+git push origin main --follow-tags
+```
+
+Note: `release.yml` runs a plain `npm publish`, which would tag this as `latest`. To ship a beta
+under the `beta` dist-tag, publish manually with `npm publish --tag beta` instead of pushing the
+tag, or add a `--tag` argument to the workflow first.
+
+## Pre-release checklist
+
+- [ ] `npm run check` passes (typecheck + Biome + Vitest)
+- [ ] `npm run test:e2e` passes against a real PocketBase
+- [ ] `npm run build` succeeds and `dist/cli.mjs` runs: `node dist/cli.mjs --version`
+- [ ] `npm pack --dry-run` shows only `dist/`, README, CHANGELOG, LICENSE
+- [ ] `CHANGELOG.md` has an entry for this version (move items out of `[Unreleased]`)
+- [ ] `README.md` reflects any new or changed flags
+- [ ] Version follows [SemVer](https://semver.org/) — generated-output changes that break consumers
+      are a **major**
+
+## Local verification
+
+```bash
 npm run build
-
-# 3. Test the package
-npm pack --dry-run
-
-# 4. Publish to npm
-npm publish
-
-# 5. Create GitHub release manually
-gh release create v$(node -p "require('./package.json').version") \
-  --title "Release v$(node -p "require('./package.json').version")" \
-  --notes "See CHANGELOG.md for details"
+npm pack                                    # produces pb-ts-zod-<version>.tgz
+npm install -g ./pb-ts-zod-*.tgz
+pb-ts-zod --version
+pb-ts-zod --json ./test/fixtures/pb_schema.json --out /tmp/out.ts
+npm uninstall -g pb-ts-zod
 ```
 
-### Method 3: Tag-Based Release
+Because the tool requires Node ≥ 22.5, verify on a Node 22+ runtime — the `node:sqlite` reader
+silently doesn't exist on older versions.
+
+## Post-release verification
+
+1. `npm view pb-ts-zod version` matches the tag
+2. The GitHub release exists with generated notes
+3. `npx pb-ts-zod@latest --version` works from a clean environment
+4. `npx pb-ts-zod@latest --json <some-schema.json>` produces a valid file
+
+## Troubleshooting
+
+**"Version already exists"** — npm versions are immutable. Bump again:
 
 ```bash
-# Create and push version tag
-git tag v1.0.0
-git push origin v1.0.0
-
-# This triggers the release workflow automatically
+npm view pb-ts-zod versions --json | tail -5
+npm version patch --no-git-tag-version
 ```
 
-## 📦 Release Process
+**"Authentication failed" / 401 on publish** — the `NPM_TOKEN` secret is missing, expired, or is a
+read-only token. Regenerate an *Automation* token with publish scope.
 
-The automated release process includes:
+**Release workflow didn't trigger** — the tag must match `v*` and must actually be pushed:
 
-1. **Version Validation**: Ensures version is valid and unique
-2. **Build & Test**: Compiles TypeScript and runs tests
-3. **Changelog Update**: Automatically updates CHANGELOG.md
-4. **NPM Publishing**: Publishes to npm registry
-5. **GitHub Release**: Creates GitHub release with notes
-6. **Verification**: Runs post-release verification tests
-
-## 🔍 Pre-Release Checklist
-
-Before releasing, verify:
-
-- [ ] All tests pass: `npm test`
-- [ ] Build succeeds: `npm run build`
-- [ ] CLI works: `node dist/cli.js --help`
-- [ ] Package is correctly configured: `npm pack --dry-run`
-- [ ] CHANGELOG.md is updated
-- [ ] README.md is current
-- [ ] Version number follows [SemVer](https://semver.org/)
-
-## 🧪 Testing Releases
-
-### Dry Run Release
 ```bash
-# Test release without publishing
-npm publish --dry-run
-
-# Or use GitHub Actions dry-run option
-```
-
-### Pre-Release Versions
-```bash
-# Create pre-release version
-npm version prerelease --preid=beta
-# Example: 1.0.0 → 1.0.1-beta.0
-
-# Publish with beta tag
-npm publish --tag beta
-```
-
-### Local Testing
-```bash
-# Test installation locally
-npm pack
-npm install -g ./pocketbase-zod-generator-*.tgz
-pocketbase-zod-generator --help
-```
-
-## 📊 Post-Release Verification
-
-After release, verify:
-
-1. **NPM Package**: Check [npmjs.com/package/pocketbase-zod-generator](https://www.npmjs.com/package/pocketbase-zod-generator)
-2. **GitHub Release**: Verify release appears in GitHub
-3. **Installation**: Test `npm install -g pocketbase-zod-generator`
-4. **Functionality**: Test CLI and programmatic usage
-
-## 🚨 Troubleshooting
-
-### Common Issues
-
-**"Version already exists"**
-```bash
-# Check current published version
-npm view pocketbase-zod-generator version
-
-# Bump to next version
-npm version patch
-```
-
-**"Authentication failed"**
-```bash
-# Verify NPM_TOKEN is correctly set in GitHub secrets
-# Check token permissions on npmjs.com
-```
-
-**"Build fails in CI"**
-```bash
-# Test locally first
-npm ci
-npm run build
-npm test
-```
-
-**"Release workflow doesn't trigger"**
-```bash
-# Check tag format (must be v*.*.*)
 git tag -l
 git push origin --tags
 ```
 
-### Recovery Steps
+**Build passes locally, fails in CI** — reproduce with a clean install:
 
-**Rollback Release**
 ```bash
-# Unpublish from npm (within 24 hours)
-npm unpublish pocketbase-zod-generator@1.0.0
-
-# Delete GitHub release
-gh release delete v1.0.0
-
-# Delete git tag
-git tag -d v1.0.0
-git push origin :refs/tags/v1.0.0
+rm -rf node_modules && npm ci && npm run build && npm run check
 ```
 
-## 📈 Monitoring
+### Rolling back
 
-### Release Metrics
-- **Download Stats**: [npm-stat.com](https://npm-stat.com/charts.html?package=pocketbase-zod-generator)
-- **Bundle Size**: [bundlephobia.com](https://bundlephobia.com/package/pocketbase-zod-generator)
-- **Dependencies**: [deps.dev](https://deps.dev/npm/pocketbase-zod-generator)
-
-### GitHub Insights
-- Monitor Actions workflow success rate
-- Track issue/PR activity post-release
-- Review download/usage statistics
-
-## 🔄 Maintenance Releases
-
-### Patch Releases (Bug Fixes)
 ```bash
-npm version patch
-# Automatically deploys via CI/CD
+npm unpublish pb-ts-zod@<version>       # only within 72 hours, and only if nothing depends on it
+gh release delete v<version>
+git tag -d v<version>
+git push origin :refs/tags/v<version>
 ```
 
-### Minor Releases (New Features)
-```bash
-npm version minor
-# Update README.md with new features
-# Update examples if needed
-```
+Prefer `npm deprecate pb-ts-zod@<version> "<reason>"` and shipping a fix over unpublishing.
 
-### Major Releases (Breaking Changes)
-```bash
-npm version major
-# Update CHANGELOG.md with migration guide
-# Update README.md with new API
-# Consider deprecation notices
-```
+## Continuous integration
 
-## 📞 Support
+`.github/workflows/ci.yml` runs on pushes and PRs to `main`, on Node 22: `npm ci` →
+`npm run check` (typecheck + Biome + unit tests) → `npm run build` → a CLI smoke check that
+generates from `test/fixtures/pb_schema.json`. `release.yml` runs the same `npm run check` before
+publishing.
 
-If you encounter deployment issues:
+The **end-to-end suite is not in CI** — it needs Bun and downloads a PocketBase binary. Run
+`npm run test:e2e` locally before any release, and for any change to field mapping, emission, or
+the fetchers.
 
-1. **Check workflow logs** in GitHub Actions
-2. **Review this guide** for common solutions
-3. **Open an issue** with deployment logs
-4. **Contact maintainers** for urgent issues
+## Monitoring
 
----
-
-**Happy Deploying! 🚀**
+- Downloads: [npm-stat](https://npm-stat.com/charts.html?package=pb-ts-zod)
+- Bundle size: [bundlephobia](https://bundlephobia.com/package/pb-ts-zod)
+- Dependencies: [deps.dev](https://deps.dev/npm/pb-ts-zod)
